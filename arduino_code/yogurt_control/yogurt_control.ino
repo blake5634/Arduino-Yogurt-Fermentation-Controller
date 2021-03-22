@@ -174,6 +174,12 @@ int pwmoutput = 0;
 long pt = 0;
 //  PWM toggling function
 int pwm_tog(float pwr, long tsec, long tms, long pwm_periodsec){
+    //
+    //   pwr:  controller output (Watts)
+    //   tsec:  current time (seconds)
+    //   tms:   current time (ms)
+    //   pwm_periodsec:  PWM signal period (sec)aa
+    //
     static long nexttime_pwm; 
     if (tsec > nexttime_pwm){ 
         // schedule start of next 
@@ -314,7 +320,7 @@ void loop() {
   int thr  = 0;  
   
   // text and String
-  static char  str[LCDCOLS];
+  static char str[LCDCOLS];
   static char ch_arr_01[LCDCOLS]; 
   static char ch_arr_02[LCDCOLS]; 
   static String modename;
@@ -331,11 +337,11 @@ void loop() {
   // PWM output signal period
   static long pwm_periodsec = PWMtime*min2sec; //
   
-  Serial.println("periods: est, ctl, pwm: (sec)");
-  Serial.print(est_periodsec);
-  Serial.print(ctl_periodsec);
-  Serial.print(pwm_periodsec);
-  Serial.println(' ');
+//   Serial.println("periods: est, ctl, pwm: (sec)");
+//   Serial.print(est_periodsec);
+//   Serial.print(ctl_periodsec);
+//   Serial.print(pwm_periodsec);
+//   Serial.println(' ');
   
   // some state variables
   static float r1,power,temperature;
@@ -405,8 +411,10 @@ void loop() {
         case 2: //FERMENT:  
             modename = "Ferm";
             tgoal = Tferment;
-            power = PID(temperature, Tferment, OUTPUT); // generate controller output
-            int u_binary = pwm_tog((float)power,tsec,tms, pwm_periodsec);// convert power to pwm.
+            // generate controller output
+            power = PID(temperature, Tferment, OUTPUT); 
+            // convert power to pwm.
+            int u_binary = pwm_tog((float)power,tsec,tms, pwm_periodsec);
             set_heater(u_binary);
             break;  
             
@@ -420,7 +428,8 @@ if(tsec > nexttime_disp){
         int min = tmin - 60*thr;
         int sec = (tsec - (long)(60.0*(float)tmin));
         modename.toCharArray(ch_arr_01,sizeof(ch_arr_01));
-        sprintf(str,"%02d:%02d   %s", thr, min, ch_arr_01 );
+        // add current PWM ratio to display
+        sprintf(str,"%02d:%02d %s %2.1f", thr, min, ch_arr_01, pwr/Pmax);
         line2(str);  
         }
 

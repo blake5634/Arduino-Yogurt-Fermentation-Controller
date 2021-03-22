@@ -138,7 +138,7 @@ if False:
 
 #  Power input from electric heating element
 
-if False:
+if True:
     Uexp = np.zeros(len(Texp))
 
     #  Open Loop response of plant with no controller 
@@ -156,6 +156,7 @@ if False:
     a = plt.gca()
     a.set_ylim([0,350])
     plt.title('Phase II: 0-power cool-down')
+    a.set_xlabel('Time (hrs)')
 
 ##########################################  PID Control
 #
@@ -223,6 +224,8 @@ ptarget(plt, th[-1], Params['Tferment'])
 
 a = plt.gca()
 a.set_ylim([85,105])
+a.set_xlabel('Time (hrs)')
+a.set_ylabel('T (deg F)')
 plt.title('Phase III: Fermetation regulation')
 
 plt.show()

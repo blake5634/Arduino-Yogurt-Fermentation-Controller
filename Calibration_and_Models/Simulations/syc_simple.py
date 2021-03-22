@@ -624,8 +624,11 @@ if True:
     a = plt.gca()
     a.set_ylim([-100,350])
     a.set_xlim([0,Tr[-1]])
+    a.set_xlabel('Time (min)')
+    a.set_ylabel('Temperature (degF)')
     a.grid(True)
-    plt.title('Manual/OO Cont Time Closed Loop (cl03)')
+    #plt.title('Manual/OO Cont Time Closed Loop (cl03)')
+    plt.title('Complete 3-Stage cycle')
 
 #
 #   DT OO closed loop
