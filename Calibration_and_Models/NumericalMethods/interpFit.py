@@ -38,7 +38,7 @@ def interp(rm,R,T):
 # Slow Cooker Data
 f = open('waterbath.csv','r')
 # time, etmin, temp F, rNTC (Kohms)
-
+S
 ti = []
 tmp = []
 rth_bk = []
@@ -52,6 +52,8 @@ for l in f:
     rth_wh.append(float(d[4]))  # r in ohms (white Thermocouple)( KOhm)
     rth_avg.append(0.5*(float(d[3])+float(d[4])))
     
+    
+## Put a point out beyond hightest temp so can interp.
 tmp.append(225.0)
 rth_bk.append(115.0)
 rth_wh.append(115.0)
