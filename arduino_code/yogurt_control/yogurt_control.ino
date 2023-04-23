@@ -67,23 +67,12 @@ void setup() {
   lcd.setCursor(0,1);
   lcd.print("      Fans!");
   delay(500);
-
-  
-  // initialize the digital pin as an output.
-  pinMode(LED_bd, OUTPUT);
   
   // initialize the digital pin as an output.
   pinMode(LED_bd, OUTPUT);
   pinMode(RELAY_Socket01, OUTPUT);
   digitalWrite(RELAY_Socket01, HIGH); // OFF: relays are active-LOW
 
-  /*
-  // test click sounds
-  set_heater(HEAT_ON);
-  delay(500);
-  set_heater(HEAT_OFF);
-  delay(500);
-  */
 }
 
 int ain() {
