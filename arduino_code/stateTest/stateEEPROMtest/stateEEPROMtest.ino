@@ -4,6 +4,8 @@
 
   This example code is in the public domain.
  */
+
+#include <EEPROM.h>
 #include <SoftwareSerial.h>
 #include <LiquidCrystal_I2C.h>
 #include <Wire.h>
@@ -13,11 +15,17 @@
 #define COOLDOWN  1
 #define FERMENT   2
 
+// State storage
+#define STATE_ADDR 1
+
+
 #define LCDi2c      0x27
 #define LCDROWS        2
 #define LCDCOLS       16
 
 LiquidCrystal_I2C lcd(LCDi2c, LCDCOLS, LCDROWS);
+
+int Gstate = COOKMODE;
 
 // the setup routine runs once when you press reset:
 void setup() {
@@ -36,10 +44,12 @@ void setup() {
   lcd.print("                ");
   lcd.setCursor(0,1);
   lcd.print("                ");
+
+  // check for a pre-stored state (i.e. recover from power loss)
+  int eeprom_state = int(EEPROM.read(STATE_ADDR));
+  if (eeprom_state > FERMENT) Gstate = 0;
+  else Gstate = eeprom_state;
 }
-
-int Gstate = COOKMODE;
-
 unsigned long tms ;
 long tsec = 0;  // elapsed time
 long tmin = 0;
@@ -50,6 +60,10 @@ int intervalsec = 10;
 int tinstatesec = 0;
 int tsecp = 0;
 
+void changetostate(int st) {
+  Gstate = st;
+  EEPROM.update(STATE_ADDR, char(st));
+}
 
 void loop() {
     //   what time is it? (time since start in absolute units)
@@ -83,10 +97,11 @@ void loop() {
     }
     //  State Machine
     if (tinstatesec > 8) {
-        if (Gstate != 2) tinstatesec = 0;
-        if (Gstate == 0) Gstate = 1;
-        else if (Gstate == 1) Gstate = 2;
-        else if (Gstate == 2) Gstate = 2;  // just stick in state 3
+       // if (Gstate != 2)
+        tinstatesec = 0;
+        if (Gstate == 0) changetostate(1);
+        else if (Gstate == 1) changetostate(2);
+        else if (Gstate == 2) changetostate(0);  // just stick in state 2
     }
 
 }
