@@ -1,10 +1,13 @@
 /*
-  Blink
-  Turns on an LED on for one second, then off for one second, repeatedly.
- 
-  This example code is in the public domain.
+    Yogurt fermentation controller
+    (C) Blake Hannaford 2021
+    Revised: use eeprom to store state for power loss / blackout recovery (4/23)
+
  */
-//#include <SoftwareSerial.h>
+
+
+#include <SoftwareSerial.h>
+#include <EEPROM.h>
 #include <LiquidCrystal_I2C.h>
 #include <Wire.h>
 
@@ -12,6 +15,13 @@
 #define COOKMODE  0
 #define COOLDOWN  1
 #define FERMENT   2
+
+// State storage
+#define STATE_ADDR 1  // address in EEPROM where state is stored (as 1 byte)
+// Estimate temp when needed for state change
+#define STATE_TEMP_TIME 3 // minutes of averaging (there's a thermal transient
+                            // when cold milk poured into cooker
+#define STATE_TEMP_SAMP_MIN  10  // temp samples per minute
 
 //   PID COMMANDS
 #define  UPDATE   0
@@ -24,7 +34,7 @@
 #define Pmax 300.0       // Watts
 #define Tamb      68.0   // ambient temp assumed (deg F)
 #define TsimIC    68.0   // initial cond for simulated temp
-#define DT         0.10  // seconds
+#define DT         0.10  // minutes
 #define Ctldt      1     // control period (min.)
 #define PWMtime    5.0   // minutes
 #define EdotN      50
@@ -49,12 +59,23 @@
 #define LCDROWS        2
 #define LCDCOLS       16
 
+#define WHITESENSOR 0  // two different thermistors
+#define BLACKSENSOR 1
+
 #define RELAY_Socket01 7
 #define RELAY_Socket02 8
 #define HEAT_ON        0
 #define HEAT_OFF       1
 
 LiquidCrystal_I2C lcd(LCDi2c, LCDCOLS, LCDROWS);
+
+int Gstate = COOKMODE;
+
+// this is how we make state transitions
+void changetostate(int st) {
+  Gstate = st;
+  EEPROM.update(STATE_ADDR, char(st));  // save current state
+}
 
 // the setup routine runs once when you press reset:
 void setup() {  
@@ -74,6 +95,35 @@ void setup() {
   pinMode(RELAY_Socket01, OUTPUT);
   digitalWrite(RELAY_Socket01, HIGH); // OFF: relays are active-LOW
 
+  // Check eeprom for a stored state.  We **might** be waking up from
+  // a (brief??) power loss.
+
+  int eeprom_state = int(EEPROM.read(STATE_ADDR));
+  // take an average of the temperature for like 3 minutes
+
+  int nsamp = 0;
+  // When we wake up after a normal batch concludes we need to get back to
+  // state "COOK" (0).   Also need this if there is some glitch or error.
+  //  Key is we need to get to state 0 if milk is COLD (below ambient) because
+  //  that is most likely a new batch from fridge.
+  disp("Checking Milk state:");
+  float sum = 0.0, r1=0.0, tmptemp=0.0;
+  long int del;
+  del = int((60*1000)/STATE_TEMP_SAMP_MIN); // ms per samp
+  for (int i=0;i<STATE_TEMP_TIME*STATE_TEMP_SAMP_MIN;i++){   // acquire and avg R value of thermistor
+        nsamp++;
+        delay(del);
+        r1 = readResistance();
+        line2(sprintf("%02d  T: %4.1f ", nsamp, R2T(r1,WHITESENSOR)));
+        sum += r1;
+      }
+  tmptemp = R2T(sum/nsamp, WHITESENSOR);
+  // regardless of EEPROM state:
+  if (tmptemp < Tamb) {
+      changetostate(COOKMODE);
+      set_heater(HEAT_ON);
+      }
+  else Gstate = eeprom_state;
 }
 
 int ain() {
@@ -90,9 +140,6 @@ float readResistance(){
     float Rth = R1 / ((Vcc/Vin)-1.0);
     return Rth  ; 
 }
-
-int WHITESENSOR = 0;
-int BLACKSENSOR = 1;
 
 float  R2T(float r, int sensor) {//interpolation fit of temperature vs. R
     //int nintpts =  19 ;
@@ -230,7 +277,7 @@ int PID(float T, float goal, int cmd){
                 sum += edotbuf[i+1];
                 edotbuf[i] = edotbuf[i+1];
                 }
-            edotbuf[EdotN-1] = (e-e1)/DT; 
+            edotbuf[EdotN-1] = (e-e1)/DT; // DT in minutes
             edot = sum/(float)EdotN;
             e1 = e;
             
@@ -290,16 +337,17 @@ float tempsim(int power, int cmd){
             }
         case OUTPUT: {
             return(T);
-            }      
+            }
     
        }
     }
 
-/*
- * 
- *  End of new code
- * 
- * ***********************************************************/
+ /***********************************************************************
+  *
+  *
+  *       The main loop
+  *
+  */
 
 void loop() { 
   float x=0;
@@ -313,7 +361,7 @@ void loop() {
   static char str[LCDCOLS];
   static char ch_arr_01[LCDCOLS]; 
   static char ch_arr_02[LCDCOLS]; 
-  static String modename;
+  static String modename;  // 5 char name for displaying state
   
   static long  nexttime_estim, nexttime_ctl, nexttime_disp;
   static long sec2ms=1000, min2sec=60;
@@ -335,10 +383,8 @@ void loop() {
   
   // some state variables
   static float r1,power,temperature;
-  
-  static int mode;  // which process stage?  (COOKTIME etc).
-  
-  unsigned long tms ;
+  // overall state or mode is now global:  "Gstate" line 62
+  unsigned long tms ; // time in ms
  
   delay(500);  //burn most of 1 seconds for ~1sec loop update
   
@@ -348,12 +394,14 @@ void loop() {
   tmin = long(tsec/60.0);
   thr  = int(tmin/60.0); 
   
+  /*  This is replaced by EEPROM code (See setup())
   // kick off Cook Mode:
   if(tsec < 3) {
-      mode = COOKMODE;
+      changetostate(COOKMODE);
       modename = "COOK";
       set_heater(HEAT_ON);
       } 
+   */
   // Do "state estimation" and "controller state update"
   if (tsec > nexttime_estim) {//  measure current temperature
     nexttime_estim += est_periodsec;  // schedule next time  
@@ -370,7 +418,7 @@ void loop() {
         r1 = readResistance();
         sum += r1; } 
     temperature = R2T(sum/5.0 , WHITESENSOR);
-    if(mode==FERMENT) {
+    if(Gstate==FERMENT) {
         PID(temperature, Tferment, UPDATE);  //  update edot etc.
         }
     }
@@ -379,27 +427,27 @@ void loop() {
   // Detect and execute control output 
   if (tsec > nexttime_ctl) {
       nexttime_ctl += ctl_periodsec ; 
-    switch (mode){
-        case 0:// COOKMODE:               
+    switch (Gstate){
+        case COOKMODE:// 0
             modename = "Cook";
             set_heater(HEAT_ON);
             tgoal = Tdenature;
             if (temperature > tgoal) {
-                mode = COOLDOWN;
+                changetostate(COOLDOWN);
                 }
             break;   
             
-        case 1: //COOLDOWN: 
+        case COOLDOWN:  // 1
             modename = "Cool";
             set_heater(HEAT_OFF);
             tgoal = Tferment;
-            if (temperature < Tferment) {
+            if (temperature <= Tferment) {
                 PID(temperature,Tferment, INIT);
-                mode = FERMENT;
+                changetostate(FERMENT);
                 }
             break;  
             
-        case 2: //FERMENT:  
+        case FERMENT:   // 2
             modename = "Ferm";
             tgoal = Tferment;
             // generate controller output
@@ -411,8 +459,8 @@ void loop() {
             
         }
   }
- //  update display
-if(tsec > nexttime_disp){
+  //  update display
+  if(tsec > nexttime_disp){
         nexttime_disp += DISP_periodsec;
         sprintf(str,"T:%s S: %s",  dtostrf(temperature,5,1,ch_arr_02), dtostrf(tgoal,3,0,ch_arr_01));
         disp(str); 
@@ -420,9 +468,11 @@ if(tsec > nexttime_disp){
         int sec = (tsec - (long)(60.0*(float)tmin));
         modename.toCharArray(ch_arr_01,sizeof(ch_arr_01));
         // add current PWM ratio to display
-        sprintf(str,"%02d:%02d %s %2.1f", thr, min, ch_arr_01, pwr/Pmax);
+        if (Gstate != FERMENT)
+            sprintf(str,"%02d:%02d F: %3d%%", thr, min,  100*power/Pmax);
+        else
+            sprintf(str,"%02d:%02d %s", thr, min, ch_arr_01);
         line2(str);  
         }
-
 }  // end of loop()
  
