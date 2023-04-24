@@ -21,10 +21,11 @@
 //    CONTROLLER PARAMETERS
 #define ANTIWINDUP  1
 #define Emax  5.0
-#define Pmax 300.0
-#define Tamb      68.0
-#define DT         0.10
-#define Ctldt      1
+#define Pmax 300.0       // Watts
+#define Tamb      68.0   // ambient temp assumed (deg F)
+#define TsimIC    68.0   // initial cond for simulated temp
+#define DT         0.10  // seconds
+#define Ctldt      1     // control period (min.)
 #define PWMtime    5.0   // minutes
 #define EdotN      50
 #define DISP_periodsec  5  // update disp every 5 sec.
@@ -276,14 +277,14 @@ float tempsim(int power, int cmd){
     float Tdot;
     switch (cmd){
         case INIT: {
-            T = Tamb;
+            T = TsimIC;
             Tm1 = T;
             Tdot = 0.0;
             return(-1);
             }
             
         case UPDATE: {
-            Tdot = PLANT_Ca*(T-Tamb) + PLANT_Cb*power;
+            Tdot = PLANT_Ca*(T-TsimIC) + PLANT_Cb*power;
             T += Tdot*DT;
             return(T);
             }
@@ -357,11 +358,12 @@ void loop() {
   if (tsec > nexttime_estim) {//  measure current temperature
     nexttime_estim += est_periodsec;  // schedule next time  
 
-            //  are we alive??
-            digitalWrite(LED_bd,HIGH);
-            delay(48);
-            digitalWrite(LED_bd,LOW);
-            delay(2);
+    //  are we alive??
+    digitalWrite(LED_bd,HIGH);
+    delay(48);
+    digitalWrite(LED_bd,LOW);
+    delay(2);
+
     float sum;
     sum = 0.0;
     for (int i=0;i<5;i++){   // acquire and avg R value of thermistor
