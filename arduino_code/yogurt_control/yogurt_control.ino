@@ -19,9 +19,9 @@
 // State storage
 #define STATE_ADDR 1  // address in EEPROM where state is stored (as 1 byte)
 // Estimate temp when needed for state change
-#define STATE_TEMP_TIME 1        // minutes of averaging (there's a thermal transient
+#define STATE_TEMP_TIME  1.0        // minutes of averaging (there's a thermal transient
                                  // when cold milk poured into cooker
-#define STATE_TEMP_SAMP_MIN  10  // temp samples per minute
+#define STATE_TEMP_SAMP_MIN  3  // temp samples per minute
 
 //   PID COMMANDS
 #define  UPDATE   0
@@ -33,9 +33,9 @@
 #define Emax       1.5       // max error integral value (deg F)
 #define Pmax     300.0       // power of heating element
 #define Tamb      68.0   // ambient temp (deg F)
-#define DT         1.0   // minutes (for ctl and estimator updates)
+#define DT         0.5   // minutes (for ctl and estimator updates)
 #define Ctldt      1.0   // ctl OUTPUT period, minutes
-#define PWMtime    1.0   // pwm period, minutes: 6 sec for testing
+#define PWMtime    2.0   // pwm period, minutes: 6 sec for testing
 #define EdotN      10     // number of avg pts for edot
 #define DISP_periodsec  5  // update disp every 5 sec.
 
@@ -53,6 +53,10 @@
 #define Kp       30.00  // based on full power if e > 10
 #define Ki         .6
 #define Kd        20.0
+
+// simple time conversions
+static long sec2ms=1000, min2sec=60;
+static long min2ms = 60*1000;
 
 //     YOGURT MAKING PARAMETERS
 
@@ -74,6 +78,12 @@
 #define HEAT_ON        0
 #define HEAT_OFF       1
 
+// we use char arrays for text. not Strings()
+static char str[LCDCOLS];
+static char ch_arr_01[LCDCOLS]; 
+static char ch_arr_02[LCDCOLS]; 
+static char  *modename;
+
 LiquidCrystal_I2C lcd(LCDi2c, LCDCOLS, LCDROWS);
 
 
@@ -90,13 +100,14 @@ int line2(char *str){
     return(0);
 }
 
-
+// Global state variable
 int Gstate = COOKMODE;
 
 // this is how we make state transitions
 void changetostate(int st) {
   Gstate = st;
-  EEPROM.update(STATE_ADDR, char(st));  // save current state
+  char tmpcodedst = (char) (st + 3);  //  so zero is not valid we just add 3 to state
+  EEPROM.update(STATE_ADDR, tmpcodedst);  // save current state
 }
 
 // the setup routine runs once when you press reset:
@@ -132,18 +143,25 @@ void setup() {
   // state "COOK" (0).   Also need this if there is some glitch or error.
   //  Key is we need to get to state 0 if milk is COLD (below ambient) because
   //  that is most likely a new batch from fridge.
-  disp("Checking Milk state:");
+  disp("Chkg milk st:");
   float sum = 0.0, r1=0.0, tmptemp=0.0;
-  long int del;
-  del = int((60*1000)/STATE_TEMP_SAMP_MIN); // ms per samp
-  for (int i=0;i<STATE_TEMP_TIME*STATE_TEMP_SAMP_MIN;i++){   // acquire and avg R value of thermistor
+  int tmp = 100 * (int) (10 * STATE_TEMP_TIME);   // perserve decimal and convert to ms
+  int del = tmp /STATE_TEMP_SAMP_MIN; // ms per samp
+  int loopcnt = int(STATE_TEMP_TIME*STATE_TEMP_SAMP_MIN);
+  loopcnt = 4;
+  for (int i=0;i<loopcnt;i++){   // acquire and avg R value of thermistor
         nsamp++;
-        delay(del);
+        sprintf(str, "%2d  %d   ",nsamp,del);
+        line2(str);   
+        delay(500);
         r1 = readResistance();
-        line2(sprintf("%02d  T: %4.1f ", nsamp, R2T(r1,WHITESENSOR)));
+        sprintf(str,"%02d  T: %d F ", nsamp, int(R2T(r1,WHITESENSOR)) ) ;
+        line2(str);    
+        delay(del);
         sum += r1;
       }
   tmptemp = R2T(sum/nsamp, WHITESENSOR);
+  
   // regardless of EEPROM state:
   if (tmptemp < Tamb) {
       changetostate(COOKMODE);
@@ -153,6 +171,8 @@ void setup() {
         // Check eeprom for a stored state.  We **might** be waking up from
         // a (brief??) power loss.
         int eeprom_state = int(EEPROM.read(STATE_ADDR));
+        eeprom_state -= 3;  //"decode" them memory value
+        if (eeprom_state < COOKMODE || eeprom_state > FERMENT) eeprom_state = COOKMODE; // don't use invalid memory value
         Gstate = eeprom_state;
         }
 }
@@ -390,13 +410,8 @@ void loop() {
   int thr  = 0;  
   
   // text (char buffers, not String()s)
-  static char str[LCDCOLS];
-  static char ch_arr_01[LCDCOLS]; 
-  static char ch_arr_02[LCDCOLS]; 
-  static char  *modename;
   
   static long  nexttime_estim, nexttime_ctl, nexttime_disp;
-  static long sec2ms=1000, min2sec=60;
   
    
   // some state variables
