@@ -6,7 +6,7 @@
  */
 
 
-#include <SoftwareSerial.h>
+//#include <SoftwareSerial.h>
 #include <EEPROM.h>
 #include <LiquidCrystal_I2C.h>
 #include <Wire.h>
@@ -30,22 +30,29 @@
 
 //    CONTROLLER PARAMETERS
 #define ANTIWINDUP  1
-#define Emax  5.0
-#define Pmax 300.0       // Watts
-#define Tamb      68.0   // ambient temp assumed (deg F)
-#define TsimIC    68.0   // initial cond for simulated temp
-#define DT         0.10  // minutes
-#define Ctldt      1     // control period (min.)
-#define PWMtime    5.0   // minutes
-#define EdotN      50
+#define Emax       1.5       // max error integral value (deg F)
+#define Pmax     300.0       // power of heating element
+#define Tamb      68.0   // ambient temp (deg F)
+#define DT         1.0   // minutes (for ctl and estimator updates)
+#define Ctldt      1.0   // ctl OUTPUT period, minutes
+#define PWMtime    1.0   // pwm period, minutes: 6 sec for testing
+#define EdotN      10     // number of avg pts for edot
 #define DISP_periodsec  5  // update disp every 5 sec.
 
 #define PLANT_Ca        -0.00410825
 #define PLANT_Cb         0.0035710
 
+/* orig
 #define Kp        250
 #define Ki        1.5
-#define Kd        600.0
+#define Kd        600.
+*/
+
+// with new periods for testing:
+
+#define Kp       30.00  // based on full power if e > 10
+#define Ki         .6
+#define Kd        20.0
 
 //     YOGURT MAKING PARAMETERS
 
@@ -69,6 +76,21 @@
 
 LiquidCrystal_I2C lcd(LCDi2c, LCDCOLS, LCDROWS);
 
+
+int disp(char *str){    
+        lcd.clear();
+        lcd.setCursor(0,0);
+        lcd.print(str);
+    return(0);
+    }
+    
+int line2(char *str){
+    lcd.setCursor(0,1);
+    lcd.print(str);
+    return(0);
+}
+
+
 int Gstate = COOKMODE;
 
 // this is how we make state transitions
@@ -79,9 +101,10 @@ void changetostate(int st) {
 
 // the setup routine runs once when you press reset:
 void setup() {  
-  Serial.begin(9600);
-  // This will attempt to initialize the display to blank with the backlight on 
- 
+  //Serial.begin(9600);
+
+  /* initialize the display to blank with the backlight on 
+  */
   lcd.init();
   lcd.backlight();
   lcd.setCursor(0,0);
@@ -95,8 +118,13 @@ void setup() {
   pinMode(RELAY_Socket01, OUTPUT);
   digitalWrite(RELAY_Socket01, HIGH); // OFF: relays are active-LOW
 
+  /*
+   * 
+   *    Deteect power loss during a cook cycle and restart in correct mode
+   * 
+   */
 
-  // If milk is cold then we intend to force system into COOK state
+  // BUT, if milk is cold then we intend to force system into COOK state
   // take an average of the temperature for like 3 minutes
 
   int nsamp = 0;
@@ -218,16 +246,23 @@ int pwm_tog(float pwr, long tsec, long tms, long pwm_periodsec){
     //   pwr:  controller output (Watts)
     //   tsec:  current time (seconds)
     //   tms:   current time (ms)
-    //   pwm_periodsec:  PWM signal period (sec)aa
+    //   pwm_periodsec:  PWM signal period (sec)
+    //   pt:    pwm ON time (ms)
     //
-    static long nexttime_pwm; 
+    static long nexttime_pwm;
+    static long nextoff_pwm;
     if (tsec > nexttime_pwm){ 
         // schedule start of next 
         nexttime_pwm += pwm_periodsec;
         pwmt0 = tms;  // store the start time of PWM cycle (ms)
+        // lock the pwm value for this period
+        if (pwr > Pmax) pwr = Pmax;
+        if (pwr < 0.0)  pwr = 0.0;
+        pt = (1000.0*((float)pwm_periodsec)*pwr/Pmax); // pwm ON time
+        nextoff_pwm = pwmt0 + pt;
         }    
-    pt = (long)(1000.0*((float)pwm_periodsec)*pwr/Pmax); // pwm ON time
-    if (tms-pwmt0 < pt) {
+    // note pwm value can change during one PWM period!
+    if (tms < nextoff_pwm) {
         pwmoutput = HEAT_ON ;
         }
     else {
@@ -237,19 +272,22 @@ int pwm_tog(float pwr, long tsec, long tms, long pwm_periodsec){
 }
 
 
-int set_heater(int status){ // >=1:ON, 0:OFF
-//     static int state; 
-//     if(!(status==state)){  // only do IO if state change
-        if (status == HEAT_ON){
+int set_heater(int command){ // >=1:ON, 0:OFF
+     static int state=HEAT_OFF; 
+     if(!(command==state)){  // only do IO if state change
+        if (command == HEAT_ON){
             digitalWrite(RELAY_Socket01,  LOW);  // TURN ON
+            state = HEAT_ON;
             }
         else {
             digitalWrite(RELAY_Socket01, HIGH);  // TURN OFF
+            state = HEAT_OFF;
             }
 //         state = status;
 //         }
     return(0);
     }
+}
     
 int PID(float T, float goal, int cmd){
     static float eint;   // integral of error
@@ -260,7 +298,9 @@ int PID(float T, float goal, int cmd){
     float e = goal-T;  
     switch (cmd){
         case INIT: {
-            eint = 0.0;
+            //eint = 0.0;
+            //  Preset the integral term b/c steady state value is ~12%
+            eint = 0.12 / Kp;
             edot = 0.0;
             for (int i=0;i<EdotN;i++){
                 edotbuf[i] = 0.0;
@@ -270,11 +310,12 @@ int PID(float T, float goal, int cmd){
             }
             
         case UPDATE: {
-            int rval;
+            int rval;  // flag to signal type of update result
+            rval = 0;
             float sum;
             // edotbuf[0] == oldest
             // edotbuf[EdotN-1] == most recent
-            // sum up and shift back the e buffer
+            // sum up and shift back the edot buffer
             sum = edotbuf[0];
             for (int i=0;i<(EdotN-1);i++){ 
                 sum += edotbuf[i+1];
@@ -286,11 +327,12 @@ int PID(float T, float goal, int cmd){
             
             //  Antiwindup feature
             if (ANTIWINDUP && (abs(e)>Emax)){
-                eint = 0.0;  // kill the integrator for large e
+                // do not integrate if error is large.
+                // eint = 0.0;  // kill the integrator for large e
                 rval = -2;
                 } 
             else {
-                eint += e;   // integrate if error is small
+                eint += e * DT;   // integrate if error is small
                 rval = -1;
                 } 
             return(rval);
@@ -306,19 +348,6 @@ int PID(float T, float goal, int cmd){
     }
         
 }
-
-int disp(char *str){    
-        lcd.clear();
-        lcd.setCursor(0,0);
-        lcd.print(str);
-    return(0);
-    }
-    
-int line2(char *str){
-    lcd.setCursor(0,1);
-    lcd.print(str);
-    return(0);
-}
     
     
 float tempsim(int power, int cmd){
@@ -327,20 +356,20 @@ float tempsim(int power, int cmd){
     float Tdot;
     switch (cmd){
         case INIT: {
-            T = TsimIC;
+            T = Tamb;
             Tm1 = T;
             Tdot = 0.0;
             return(-1);
             }
             
         case UPDATE: {
-            Tdot = PLANT_Ca*(T-TsimIC) + PLANT_Cb*power;
+            Tdot = PLANT_Ca*(T-Tamb) + PLANT_Cb*power;
             T += Tdot*DT;
             return(T);
             }
         case OUTPUT: {
             return(T);
-            }
+            }      
     
        }
     }
@@ -350,9 +379,9 @@ float tempsim(int power, int cmd){
   *
   *       The main loop
   *
-  */
-
-void loop() { 
+  */ 
+void loop() {
+  // don't add delays(!) 
   float x=0;
   float a=0;
   float y=0;  
@@ -360,37 +389,32 @@ void loop() {
   long tmin = 0;
   int thr  = 0;  
   
-  // text and String
+  // text (char buffers, not String()s)
   static char str[LCDCOLS];
   static char ch_arr_01[LCDCOLS]; 
   static char ch_arr_02[LCDCOLS]; 
-  static String modename;  // 5 char name for displaying state
+  static char  *modename;
   
   static long  nexttime_estim, nexttime_ctl, nexttime_disp;
   static long sec2ms=1000, min2sec=60;
   
-  // update period for estimator
-  static int est_periodsec   = int(min2sec*DT);   //  estimation period (sec)
-  
-  // Update period for controller
-  static int ctl_periodsec = int(min2sec*Ctldt);  //  control period   (sec)
-
-  // PWM output signal period
-  static long pwm_periodsec = PWMtime*min2sec; //
-  
-//   Serial.println("periods: est, ctl, pwm: (sec)");
-//   Serial.print(est_periodsec);
-//   Serial.print(ctl_periodsec);
-//   Serial.print(pwm_periodsec);
-//   Serial.println(' ');
-  
+   
   // some state variables
   static float r1,power,temperature;
-  // overall state or mode is now global:  "Gstate" line 62
-  unsigned long tms ; // time in ms
- 
-  delay(500);  //burn most of 1 seconds for ~1sec loop update
   
+  static int mode;  // which process stage?  (COOKTIME etc).
+  
+  unsigned long tms ;
+  
+  // update period for estimator
+  static long est_periodsec   = (long) int(min2sec*DT);   //  estimation period (sec)
+  
+  // Update period for controller
+  static long ctl_periodsec = (long) int(min2sec*Ctldt);  //  control period   (sec)
+
+  // PWM output signal period
+  static long pwm_periodsec = (long) int(PWMtime*float(min2sec)); //
+   
   //   what time is it? (time since start in absolute units)
   tms = millis();
   tsec = long(float(tms)/1000.0);
@@ -410,11 +434,13 @@ void loop() {
     nexttime_estim += est_periodsec;  // schedule next time  
 
     //  are we alive??
+    /*  reimplement this w/o delays!!
     digitalWrite(LED_bd,HIGH);
     delay(48);
     digitalWrite(LED_bd,LOW);
     delay(2);
-
+    */
+    
     float sum;
     sum = 0.0;
     for (int i=0;i<5;i++){   // acquire and avg R value of thermistor
@@ -434,15 +460,17 @@ void loop() {
         case COOKMODE:// 0
             modename = "Cook";
             set_heater(HEAT_ON);
+            power = Pmax;
             tgoal = Tdenature;
             if (temperature > tgoal) {
-                changetostate(COOLDOWN);
+                mode = COOLDOWN;
                 }
             break;   
             
         case COOLDOWN:  // 1
             modename = "Cool";
             set_heater(HEAT_OFF);
+            power = 0.0;
             tgoal = Tferment;
             if (temperature <= Tferment) {
                 PID(temperature,Tferment, INIT);
@@ -456,25 +484,28 @@ void loop() {
             // generate controller output
             power = PID(temperature, Tferment, OUTPUT); 
             // convert power to pwm.
-            int u_binary = pwm_tog((float)power,tsec,tms, pwm_periodsec);
-            set_heater(u_binary);
             break;  
             
         }
   }
-  //  update display
-  if(tsec > nexttime_disp){
+
+  // operate the PWM cycle quickly every loop cycle (in ferment mode only)
+  //  but do this AFTER power is updated in control loop
+  if (mode==FERMENT) {
+    int u_binary = pwm_tog((float)power,tsec,tms, pwm_periodsec);
+    set_heater(u_binary);
+    }
+  
+ //  update display
+if(tsec > nexttime_disp){
         nexttime_disp += DISP_periodsec;
         sprintf(str,"T:%s S: %s",  dtostrf(temperature,5,1,ch_arr_02), dtostrf(tgoal,3,0,ch_arr_01));
         disp(str); 
         int min = tmin - 60*thr;
         int sec = (tsec - (long)(60.0*(float)tmin));
-        modename.toCharArray(ch_arr_01,sizeof(ch_arr_01));
+ //       modename.toCharArray(ch_arr_01,sizeof(ch_arr_01));
         // add current PWM ratio to display
-        if (Gstate != FERMENT)
-            sprintf(str,"%02d:%02d F: %3d%%", thr, min,  100*power/Pmax);
-        else
-            sprintf(str,"%02d:%02d %s", thr, min, ch_arr_01);
+        sprintf(str,"%02d:%02d %4s %3d%%", thr, min, modename, int(100*power/Pmax));
         line2(str);  
         }
 }  // end of loop()
