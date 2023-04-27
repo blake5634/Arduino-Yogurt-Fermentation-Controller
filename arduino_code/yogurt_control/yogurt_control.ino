@@ -131,7 +131,7 @@ void setup() {
 
   /*
    * 
-   *    Deteect power loss during a cook cycle and restart in correct mode
+   *    Detect power loss during a cook cycle and restart in correct mode
    * 
    */
 
@@ -151,9 +151,9 @@ void setup() {
   loopcnt = 4;
   for (int i=0;i<loopcnt;i++){   // acquire and avg R value of thermistor
         nsamp++;
-        sprintf(str, "%2d  %d   ",nsamp,del);
-        line2(str);   
-        delay(500);
+       // sprintf(str, "%2d  %d   ",nsamp,del);
+       // line2(str);
+       // delay(500);
         r1 = readResistance();
         sprintf(str,"%02d  T: %d F ", nsamp, int(R2T(r1,WHITESENSOR)) ) ;
         line2(str);    
@@ -164,7 +164,7 @@ void setup() {
   
   // regardless of EEPROM state:
   if (tmptemp < Tamb) {
-      changetostate(COOKMODE);
+      changetostate(COOKMODE);  // if milk is cold we must have meant COOK!
       set_heater(HEAT_ON);
       }
   else {
@@ -172,8 +172,10 @@ void setup() {
         // a (brief??) power loss.
         int eeprom_state = int(EEPROM.read(STATE_ADDR));
         eeprom_state -= 3;  //"decode" them memory value
-        if (eeprom_state < COOKMODE || eeprom_state > FERMENT) eeprom_state = COOKMODE; // don't use invalid memory value
-        Gstate = eeprom_state;
+        if (eeprom_state < COOKMODE || eeprom_state > FERMENT) {
+            eeprom_state = COOKMODE; // don't use invalid memory value
+            }
+        changetostate(eeprom_state);
         }
 }
 
@@ -435,27 +437,16 @@ void loop() {
   tsec = long(float(tms)/1000.0);
   tmin = long(tsec/60.0);
   thr  = int(tmin/60.0); 
-  
-  /*  This is replaced by EEPROM code (See setup())
-  // kick off Cook Mode:
-  if(tsec < 3) {
-      changetostate(COOKMODE);
-      modename = "COOK";
-      set_heater(HEAT_ON);
-      } 
-   */
+
+  //  are we alive?? flash LED
+  if (! tsec%2):
+    digitalWrite(LED_bd,HIGH);
+  else if (! (tsec-1)%2):
+    digitalWrite(LED_bd,LOW);
+
   // Do "state estimation" and "controller state update"
   if (tsec > nexttime_estim) {//  measure current temperature
-    nexttime_estim += est_periodsec;  // schedule next time  
-
-    //  are we alive??
-    /*  reimplement this w/o delays!!
-    digitalWrite(LED_bd,HIGH);
-    delay(48);
-    digitalWrite(LED_bd,LOW);
-    delay(2);
-    */
-    
+    nexttime_estim += est_periodsec;  // schedule next time
     float sum;
     sum = 0.0;
     for (int i=0;i<5;i++){   // acquire and avg R value of thermistor
@@ -466,7 +457,6 @@ void loop() {
         PID(temperature, Tferment, UPDATE);  //  update edot etc.
         }
     }
-  static float tgoal = Tdenature;
   
   // Detect and execute control output 
   if (tsec > nexttime_ctl) {
@@ -476,9 +466,8 @@ void loop() {
             modename = "Cook";
             set_heater(HEAT_ON);
             power = Pmax;
-            tgoal = Tdenature;
-            if (temperature > tgoal) {
-                mode = COOLDOWN;
+            if (temperature > Tdenature) {
+                changetosate(COOLDOWN);
                 }
             break;   
             
@@ -486,19 +475,16 @@ void loop() {
             modename = "Cool";
             set_heater(HEAT_OFF);
             power = 0.0;
-            tgoal = Tferment;
             if (temperature <= Tferment) {
-                PID(temperature,Tferment, INIT);
+                PID(temperature, Tferment, INIT);
                 changetostate(FERMENT);
                 }
             break;  
             
         case FERMENT:   // 2
             modename = "Ferm";
-            tgoal = Tferment;
             // generate controller output
-            power = PID(temperature, Tferment, OUTPUT); 
-            // convert power to pwm.
+            power = PID(temperature, Tferment, OUTPUT);
             break;  
             
         }
@@ -514,7 +500,7 @@ void loop() {
  //  update display
 if(tsec > nexttime_disp){
         nexttime_disp += DISP_periodsec;
-        sprintf(str,"T:%s S: %s",  dtostrf(temperature,5,1,ch_arr_02), dtostrf(tgoal,3,0,ch_arr_01));
+        sprintf(str,"T:%s S: %s",  dtostrf(temperature,5,1,ch_arr_02), dtostrf(Tdenature,3,0,ch_arr_01));
         disp(str); 
         int min = tmin - 60*thr;
         int sec = (tsec - (long)(60.0*(float)tmin));
