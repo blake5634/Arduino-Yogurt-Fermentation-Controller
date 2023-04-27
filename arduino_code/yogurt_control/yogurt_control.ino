@@ -19,8 +19,8 @@
 // State storage
 #define STATE_ADDR 1  // address in EEPROM where state is stored (as 1 byte)
 // Estimate temp when needed for state change
-#define STATE_TEMP_TIME 3 // minutes of averaging (there's a thermal transient
-                            // when cold milk poured into cooker
+#define STATE_TEMP_TIME 1        // minutes of averaging (there's a thermal transient
+                                 // when cold milk poured into cooker
 #define STATE_TEMP_SAMP_MIN  10  // temp samples per minute
 
 //   PID COMMANDS
@@ -88,17 +88,15 @@ void setup() {
   lcd.print("Hello Yogurt");
   lcd.setCursor(0,1);
   lcd.print("      Fans!");
-  delay(500);
+  delay(2500);
   
   // initialize the digital pin as an output.
   pinMode(LED_bd, OUTPUT);
   pinMode(RELAY_Socket01, OUTPUT);
   digitalWrite(RELAY_Socket01, HIGH); // OFF: relays are active-LOW
 
-  // Check eeprom for a stored state.  We **might** be waking up from
-  // a (brief??) power loss.
 
-  int eeprom_state = int(EEPROM.read(STATE_ADDR));
+  // If milk is cold then we intend to force system into COOK state
   // take an average of the temperature for like 3 minutes
 
   int nsamp = 0;
@@ -123,7 +121,12 @@ void setup() {
       changetostate(COOKMODE);
       set_heater(HEAT_ON);
       }
-  else Gstate = eeprom_state;
+  else {
+        // Check eeprom for a stored state.  We **might** be waking up from
+        // a (brief??) power loss.
+        int eeprom_state = int(EEPROM.read(STATE_ADDR));
+        Gstate = eeprom_state;
+        }
 }
 
 int ain() {
