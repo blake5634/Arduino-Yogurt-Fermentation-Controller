@@ -24,10 +24,10 @@ Test version for use in PID controller testing.
 #define Emax       1.5       // max error integral value (deg F)
 #define Pmax     300.0       // power of heating element
 #define Tamb      68.0   // ambient temp (deg F)
-#define DT         0.1   // minutes (for ctl and estimator updates)
-#define Ctldt      1.0   // ctl update period, minutes
-#define PWMtime    0.1   // pwm period, minutes: 6 sec for testing
-#define EdotN      10
+#define DT         1.0   // minutes (for ctl and estimator updates)
+#define Ctldt      1.0   // ctl OUTPUT period, minutes
+#define PWMtime    1.0   // pwm period, minutes: 6 sec for testing
+#define EdotN      10     // number of avg pts for edot
 #define DISP_periodsec  5  // update disp every 5 sec.
 
 #define PLANT_Ca        -0.00410825
@@ -41,8 +41,8 @@ Test version for use in PID controller testing.
 
 // with new periods for testing:
 
-#define Kp       30.00
-#define Ki         .3
+#define Kp       30.00  // based on full power if e > 10
+#define Ki         .6
 #define Kd        20.0
 
 //     YOGURT MAKING PARAMETERS
@@ -241,7 +241,9 @@ int PID(float T, float goal, int cmd){
     float e = goal-T;  
     switch (cmd){
         case INIT: {
-            eint = 0.0;
+            //eint = 0.0;
+            //  Preset the integral term b/c steady state value is ~12%
+            eint = 0.12 / Kp;y
             edot = 0.0;
             for (int i=0;i<EdotN;i++){
                 edotbuf[i] = 0.0;
@@ -273,7 +275,7 @@ int PID(float T, float goal, int cmd){
                 rval = -2;
                 } 
             else {
-                eint += e;   // integrate if error is small
+                eint += e * DT;   // integrate if error is small
                 rval = -1;
                 } 
             
@@ -434,11 +436,6 @@ void loop() {
   static float tgoal = Tdenature;
 
 
-  // operate the PWM cycle quickly all the time (in ferment mode only)
-  if (mode==FERMENT) {
-    int u_binary = pwm_tog((float)power,tsec,tms, pwm_periodsec);
-    set_heater(u_binary);
-    }
   
   // Detect and execute control output 
   if (tsec > nexttime_ctl) {
@@ -475,6 +472,14 @@ void loop() {
             
         }
   }
+
+  // operate the PWM cycle quickly every loop cycle (in ferment mode only)
+  //  but do this AFTER power is updated in control loop
+  if (mode==FERMENT) {
+    int u_binary = pwm_tog((float)power,tsec,tms, pwm_periodsec);
+    set_heater(u_binary);
+    }
+  
  //  update display
 if(tsec > nexttime_disp){
         nexttime_disp += DISP_periodsec;
