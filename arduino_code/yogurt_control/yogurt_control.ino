@@ -29,26 +29,27 @@
 #define  INIT     2
 
 //    CONTROLLER PARAMETERS
-#define ANTIWINDUP  1
-#define Emax       1.5       // max error integral value (deg F)
-#define Pmax     300.0       // power of heating element
+#define ANTIWINDUP  1    // https://en.wikipedia.org/wiki/Integral_windup
+#define Emax       1.5   // max error integral value (deg F) (only integrate SMALL errors)
+#define Pmax     300.0   // power of the heating element
 #define Tamb      68.0   // ambient temp (deg F)
 #define DT         0.5   // minutes (for ctl and estimator updates)
 #define Ctldt      1.0   // ctl OUTPUT period, minutes
-#define PWMtime    2.0   // pwm period, minutes: 6 sec for testing
-#define EdotN      10     // number of avg pts for edot
+#define PWMtime    2.0   // pwm period, minutes: 6 sec for testing 2min quieter
+#define EdotN      10      // number of avg pts for edot estimate
 #define DISP_periodsec  5  // update disp every 5 sec.
 
+// only for plant simulation
 #define PLANT_Ca        -0.00410825
 #define PLANT_Cb         0.0035710
 
-/* orig
+/* orig 2020
 #define Kp        250
 #define Ki        1.5
 #define Kd        600.
 */
 
-// with new periods for testing:
+// with new periods April 2023:
 
 #define Kp       30.00  // based on full power if e > 10
 #define Ki         .6
@@ -65,7 +66,7 @@ static long min2ms = 60*1000;
 
 //      HARDWARE PARAMETERS
 
-#define LED_bd        LED_BUILTIN // Arduino pro mini
+#define LED_bd     LED_BUILTIN // Arduino pro mini
 #define LCDi2c      0x27
 #define LCDROWS        2
 #define LCDCOLS       16
@@ -79,18 +80,20 @@ static long min2ms = 60*1000;
 #define HEAT_OFF       1
 
 // we use char arrays for text. not Strings()
-static char str[LCDCOLS];
+static char str[LCDCOLS];    // a buffer for sprintf(str,xxxxx)
 static char ch_arr_01[LCDCOLS]; 
 static char ch_arr_02[LCDCOLS]; 
-static char  *modename;
+static char  *modename;      // four char name for displaying current state (frmrly mode)
 
  
 // some state variables
-static float r1,power,temperature;
+static float r1,power,temperature, set_point_temp;
   
 LiquidCrystal_I2C lcd(LCDi2c, LCDCOLS, LCDROWS);
 
-
+/*
+ * Display on top line (16 chars max)
+ * */
 int disp(char *str){    
         lcd.clear();
         lcd.setCursor(0,0);
@@ -465,6 +468,7 @@ void loop() {
             modename = "Cook";
             set_heater(HEAT_ON);
             power = Pmax;
+            set_point_temp = Tdenature;
             if (temperature > Tdenature) {
                 changetostate(COOLDOWN);
                 }
@@ -473,33 +477,38 @@ void loop() {
         case COOLDOWN:  // 1
             modename = "Cool";
             set_heater(HEAT_OFF);
+            set_point_temp = Tferment;
             power = 0.0;
             if (temperature <= Tferment) {
-                PID(temperature, Tferment, INIT);
+                PID(temperature, set_point_temp, INIT);
                 changetostate(FERMENT);
                 }
             break;  
             
         case FERMENT:   // 2
             modename = "Ferm";
+            set_point_temp = Tferment;
             // generate controller output
-            power = PID(temperature, Tferment, OUTPUT);
+            power = PID(temperature, set_point_temp, OUTPUT);
+            // output of PID power via PWM is coded just below:
             break;  
             
         }
   }
 
-  // operate the PWM cycle quickly every loop cycle (in ferment mode only)
+  // Drive the heater on and off to deliver needed power
+  // operate the PWM cycle quickly every loop cycle (in ferment state only)
   //  but do this AFTER power is updated in control loop
   if (Gstate==FERMENT) {
+    // parameters of pwm_tog control switching times.
     int u_binary = pwm_tog((float)power,tsec,tms, pwm_periodsec);
-    set_heater(u_binary);
+    set_heater(u_binary);  // physical output only occurs on changes.
     }
   
  //  update display
 if(tsec > nexttime_disp){
         nexttime_disp += DISP_periodsec;
-        sprintf(str,"T:%s S: %s",  dtostrf(temperature,5,1,ch_arr_02), dtostrf(Tdenature,3,0,ch_arr_01));
+        sprintf(str,"T:%s S: %s",  dtostrf(temperature,5,1,ch_arr_02), dtostrf(set_point_temp,3,0,ch_arr_01));
         disp(str); 
         int min = tmin - 60*thr;
         int sec = (tsec - (long)(60.0*(float)tmin));
