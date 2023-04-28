@@ -65,7 +65,7 @@ static long min2ms = 60*1000;
 
 //      HARDWARE PARAMETERS
 
-#define LED_bd        13
+#define LED_bd        LED_BUILTIN // Arduino pro mini
 #define LCDi2c      0x27
 #define LCDROWS        2
 #define LCDCOLS       16
@@ -84,6 +84,10 @@ static char ch_arr_01[LCDCOLS];
 static char ch_arr_02[LCDCOLS]; 
 static char  *modename;
 
+ 
+// some state variables
+static float r1,power,temperature;
+  
 LiquidCrystal_I2C lcd(LCDi2c, LCDCOLS, LCDROWS);
 
 
@@ -146,7 +150,7 @@ void setup() {
   disp("Chkg milk st:");
   float sum = 0.0, r1=0.0, tmptemp=0.0;
   int tmp = 100 * (int) (10 * STATE_TEMP_TIME);   // perserve decimal and convert to ms
-  int del = tmp /STATE_TEMP_SAMP_MIN; // ms per samp
+  int del = int( tmp /(STATE_TEMP_SAMP_MIN)); // ms per samp
   int loopcnt = int(STATE_TEMP_TIME*STATE_TEMP_SAMP_MIN);
   loopcnt = 4;
   for (int i=0;i<loopcnt;i++){   // acquire and avg R value of thermistor
@@ -166,6 +170,7 @@ void setup() {
   if (tmptemp < Tamb) {
       changetostate(COOKMODE);  // if milk is cold we must have meant COOK!
       set_heater(HEAT_ON);
+      temperature = tmptemp;
       }
   else {
         // Check eeprom for a stored state.  We **might** be waking up from
@@ -414,13 +419,7 @@ void loop() {
   // text (char buffers, not String()s)
   
   static long  nexttime_estim, nexttime_ctl, nexttime_disp;
-  
-   
-  // some state variables
-  static float r1,power,temperature;
-  
-  static int mode;  // which process stage?  (COOKTIME etc).
-  
+    
   unsigned long tms ;
   
   // update period for estimator
@@ -439,9 +438,9 @@ void loop() {
   thr  = int(tmin/60.0); 
 
   //  are we alive?? flash LED
-  if (! tsec%2):
+  if (tsec % 2 < 1)
     digitalWrite(LED_bd,HIGH);
-  else if (! (tsec-1)%2):
+  else
     digitalWrite(LED_bd,LOW);
 
   // Do "state estimation" and "controller state update"
@@ -460,14 +459,14 @@ void loop() {
   
   // Detect and execute control output 
   if (tsec > nexttime_ctl) {
-      nexttime_ctl += ctl_periodsec ; 
+    nexttime_ctl += ctl_periodsec; 
     switch (Gstate){
         case COOKMODE:// 0
             modename = "Cook";
             set_heater(HEAT_ON);
             power = Pmax;
             if (temperature > Tdenature) {
-                changetosate(COOLDOWN);
+                changetostate(COOLDOWN);
                 }
             break;   
             
@@ -492,7 +491,7 @@ void loop() {
 
   // operate the PWM cycle quickly every loop cycle (in ferment mode only)
   //  but do this AFTER power is updated in control loop
-  if (mode==FERMENT) {
+  if (Gstate==FERMENT) {
     int u_binary = pwm_tog((float)power,tsec,tms, pwm_periodsec);
     set_heater(u_binary);
     }
