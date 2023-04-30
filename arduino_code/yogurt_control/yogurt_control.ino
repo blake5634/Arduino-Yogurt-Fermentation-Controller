@@ -72,6 +72,7 @@ static long min2ms = 60*1000;
 
 #define WHITESENSOR 0  // two different thermistors
 #define BLACKSENSOR 1
+#define SENSOR_OFFSET_WHITE   2.0  //  Empirical: add this to computed temp (minimize error at Tferment)
 
 #define RELAY_Socket01 7
 #define RELAY_Socket02 8
@@ -235,7 +236,10 @@ float  R2T(float r, int sensor) {//interpolation fit of temperature vs. R
             break;
             }
     }
-    return(float(tval)); 
+    // SENSOR_OFFSET_WHITE is an empirical factor to zero error at Tferment with "white" thermistor
+    if (sensor == WHITESENSOR):
+        return(float(SENSOR_OFFSET_WHITE + tval));
+    else return(float(tval));
     }
 
 float R2TV1(float r, int sensor) {//interpolation fit of temperature vs. R
