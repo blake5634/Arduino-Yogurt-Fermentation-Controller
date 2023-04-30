@@ -240,7 +240,7 @@ float  R2T(float r, int sensor) {//interpolation fit of temperature vs. R
             }
     }
     // SENSOR_OFFSET_WHITE is an empirical factor to zero error at Tferment with "white" thermistor
-    if (sensor == WHITESENSOR):
+    if (sensor == WHITESENSOR)
         return(float(SENSOR_OFFSET_WHITE + tval));
     else return(float(tval));
     }
