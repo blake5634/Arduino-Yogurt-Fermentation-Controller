@@ -241,8 +241,19 @@ float  R2T(float r, int sensor) {//interpolation fit of temperature vs. R
     }
     // SENSOR_OFFSET_WHITE is an empirical factor to zero error at Tferment with "white" thermistor
     if (sensor == WHITESENSOR)
-        return(float(SENSOR_OFFSET_WHITE + tval));
-    else return(float(tval));
+        /*
+         *  Empirical thermistor corrections
+         *   1) SENSOR_OFFSET_WHITE    a constant offset to correct temp at t=Tferment (where PID operates)
+         *   2) hack_highT             gradually increasing correction for higher temps > Tferment (for accurate COOK)
+         */
+        float retval = 0.0;
+        retval = tval + SENSOR_OFFSET_WHITE;  // correction 1)
+        float hack_highT = 0.0;
+        if (retval > Tferment)
+            hack_highT = (tval-Tferment)*(-8.0/(Tdenature-Tferment));  // correct +8degF too high reading at Tdenature
+            retval += hack_highT;   // correction 2)
+        return(retval);
+    else return(float(tval)); // no corrections yet for black sensor
     }
 
 float R2TV1(float r, int sensor) {//interpolation fit of temperature vs. R
