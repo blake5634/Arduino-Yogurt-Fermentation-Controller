@@ -74,6 +74,8 @@ static long min2ms = 60*1000;
 #define WHITESENSOR 0  // two different thermistors
 #define BLACKSENSOR 1
 #define SENSOR_OFFSET_WHITE   2.0  //  Empirical: add this to computed temp (minimize error at Tferment)
+#define SENSOR_CORRECTION_DENATURE_WHITE  -8.0  //calib adjust for high temps
+
 
 #define RELAY_Socket01 7
 #define RELAY_Socket02 8
@@ -240,7 +242,7 @@ float  R2T(float r, int sensor) {//interpolation fit of temperature vs. R
             }
     }
     // SENSOR_OFFSET_WHITE is an empirical factor to zero error at Tferment with "white" thermistor
-    if (sensor == WHITESENSOR)
+    if (sensor == WHITESENSOR) {
         /*
          *  Empirical thermistor corrections
          *   1) SENSOR_OFFSET_WHITE    a constant offset to correct temp at t=Tferment (where PID operates)
@@ -249,10 +251,11 @@ float  R2T(float r, int sensor) {//interpolation fit of temperature vs. R
         float retval = 0.0;
         retval = tval + SENSOR_OFFSET_WHITE;  // correction 1)
         float hack_highT = 0.0;
-        if (retval > Tferment)
-            hack_highT = (tval-Tferment)*(-8.0/(Tdenature-Tferment));  // correct +8degF too high reading at Tdenature
-            retval += hack_highT;   // correction 2)
+        if (retval > Tferment)  // only gradually correct, above Tferment
+            hack_highT = (tval-Tferment)*(SENSOR_CORRECTION_DENATURE_WHITE/(Tdenature-Tferment));  // correct +8degF too high reading at Tdenature
+        retval += hack_highT;   // correction 2)
         return(retval);
+        }
     else return(float(tval)); // no corrections yet for black sensor
     }
 
