@@ -62,7 +62,7 @@ static long min2ms = 60*1000;
 //     YOGURT MAKING PARAMETERS
 
 #define Tdenature 195.0
-#define Tferment  105.0
+#define Tferment  110.0
 
 //      HARDWARE PARAMETERS
 
@@ -163,7 +163,7 @@ void setup() {
         nsamp++;
        // sprintf(str, "%2d  %d   ",nsamp,del);
        // line2(str);
-       // delay(500);
+        delay(1000);
         r1 = readResistance();
         sprintf(str,"%02d  T: %d F ", nsamp, int(R2T(r1,WHITESENSOR)) ) ;
         line2(str);    
@@ -173,18 +173,18 @@ void setup() {
   tmptemp = R2T(sum/nsamp, WHITESENSOR);
   
   // regardless of EEPROM state:
-  if (tmptemp < Tamb) {
-      changetostate(COOKMODE);  // if milk is cold we must have meant COOK!
-      set_heater(HEAT_ON);
-      temperature = tmptemp;
-      }
+  if (tmptemp < Tamb and tmptemp > 0.0) {  // unplugged sensor = -INF
+        changetostate(COOKMODE);  // if milk is cold we must have meant COOK!
+        set_heater(HEAT_ON);
+        temperature = tmptemp;
+        }
   else {
         // Check eeprom for a stored state.  We **might** be waking up from
         // a (brief??) power loss.
         int eeprom_state = int(EEPROM.read(STATE_ADDR));
         eeprom_state -= 3;  //"decode" them memory value
         if (eeprom_state < COOKMODE || eeprom_state > FERMENT) {
-            eeprom_state = COOKMODE; // don't use invalid memory value
+            eeprom_state = COOKMODE; // if invalid memory value, default to COOK
             }
         changetostate(eeprom_state);
         }
@@ -455,8 +455,8 @@ void loop() {
   //   what time is it? (time since start in absolute units)
   tms = millis();
   tsec = long(float(tms)/1000.0);
-  tmin = long(tsec/60.0);
-  thr  = int(tmin/60.0); 
+  tmin = long(tsec/60);
+  thr  = int(tmin/60);
 
   //  are we alive?? flash LED
   if (tsec % 2 < 1)
@@ -529,7 +529,7 @@ if(tsec > nexttime_disp){
         sprintf(str,"T:%s S: %s",  dtostrf(temperature,5,1,ch_arr_02), dtostrf(set_point_temp,3,0,ch_arr_01));
         disp(str); 
         int min = tmin - 60*thr;
-        int sec = (tsec - (long)(60.0*(float)tmin));
+        int sec = (tsec - (long)(60*tmin));
  //       modename.toCharArray(ch_arr_01,sizeof(ch_arr_01));
         // add current PWM ratio to display
         sprintf(str,"%02d:%02d %4s %3d%%", thr, min, modename, int(100*power/Pmax));
