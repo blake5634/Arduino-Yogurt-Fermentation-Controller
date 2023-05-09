@@ -3,6 +3,9 @@
     (C) Blake Hannaford 2021
     Revised: use eeprom to store state for power loss / blackout recovery (4/23)
 
+    Note: be sure to compile for correct clock speed or millis() will be off!
+    (current board ardino pro mini 16Mhz)
+
  */
 
 
@@ -436,6 +439,7 @@ void loop() {
   float y=0;  
   long int tsec = 0;  // elapsed time
   long int tmin = 0;
+  long int tms = 0;
   int t_hour  = 0;
   
   // text (char buffers, not String()s)
