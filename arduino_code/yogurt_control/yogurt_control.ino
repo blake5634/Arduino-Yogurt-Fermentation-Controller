@@ -3,6 +3,9 @@
     (C) Blake Hannaford 2021
     Revised: use eeprom to store state for power loss / blackout recovery (4/23)
 
+    Note: be sure to compile for correct clock speed or millis() will be off!
+    (current board ardino pro mini 16Mhz)
+
  */
 
 
@@ -56,13 +59,13 @@
 #define Kd        20.0
 
 // simple time conversions
-static long sec2ms=1000, min2sec=60;
-static long min2ms = 60*1000;
+static long int sec2ms=1000;
+static long int min2sec=60;
 
 //     YOGURT MAKING PARAMETERS
 
 #define Tdenature 195.0
-#define Tferment  105.0
+#define Tferment  110.0
 
 //      HARDWARE PARAMETERS
 
@@ -74,6 +77,8 @@ static long min2ms = 60*1000;
 #define WHITESENSOR 0  // two different thermistors
 #define BLACKSENSOR 1
 #define SENSOR_OFFSET_WHITE   2.0  //  Empirical: add this to computed temp (minimize error at Tferment)
+#define SENSOR_CORRECTION_DENATURE_WHITE  -8.0  //calib adjust for high temps
+
 
 #define RELAY_Socket01 7
 #define RELAY_Socket02 8
@@ -161,7 +166,7 @@ void setup() {
         nsamp++;
        // sprintf(str, "%2d  %d   ",nsamp,del);
        // line2(str);
-       // delay(500);
+        delay(1000);
         r1 = readResistance();
         sprintf(str,"%02d  T: %d F ", nsamp, int(R2T(r1,WHITESENSOR)) ) ;
         line2(str);    
@@ -171,18 +176,18 @@ void setup() {
   tmptemp = R2T(sum/nsamp, WHITESENSOR);
   
   // regardless of EEPROM state:
-  if (tmptemp < Tamb) {
-      changetostate(COOKMODE);  // if milk is cold we must have meant COOK!
-      set_heater(HEAT_ON);
-      temperature = tmptemp;
-      }
+  if (tmptemp < Tamb and tmptemp > 0.0) {  // unplugged sensor = -INF
+        changetostate(COOKMODE);  // if milk is cold we must have meant COOK!
+        set_heater(HEAT_ON);
+        temperature = tmptemp;
+        }
   else {
         // Check eeprom for a stored state.  We **might** be waking up from
         // a (brief??) power loss.
         int eeprom_state = int(EEPROM.read(STATE_ADDR));
         eeprom_state -= 3;  //"decode" them memory value
         if (eeprom_state < COOKMODE || eeprom_state > FERMENT) {
-            eeprom_state = COOKMODE; // don't use invalid memory value
+            eeprom_state = COOKMODE; // if invalid memory value, default to COOK
             }
         changetostate(eeprom_state);
         }
@@ -240,9 +245,21 @@ float  R2T(float r, int sensor) {//interpolation fit of temperature vs. R
             }
     }
     // SENSOR_OFFSET_WHITE is an empirical factor to zero error at Tferment with "white" thermistor
-    if (sensor == WHITESENSOR)
-        return(float(SENSOR_OFFSET_WHITE + tval));
-    else return(float(tval));
+    if (sensor == WHITESENSOR) {
+        /*
+         *  Empirical thermistor corrections
+         *   1) SENSOR_OFFSET_WHITE    a constant offset to correct temp at t=Tferment (where PID operates)
+         *   2) hack_highT             gradually increasing correction for higher temps > Tferment (for accurate COOK)
+         */
+        float retval = 0.0;
+        retval = tval + SENSOR_OFFSET_WHITE;  // correction 1)
+        float hack_highT = 0.0;
+        if (retval > Tferment)  // only gradually correct, above Tferment
+            hack_highT = (tval-Tferment)*(SENSOR_CORRECTION_DENATURE_WHITE/(Tdenature-Tferment));  // correct +8degF too high reading at Tdenature
+        retval += hack_highT;   // correction 2)
+        return(retval);
+        }
+    else return(float(tval)); // no corrections yet for black sensor
     }
 
 float R2TV1(float r, int sensor) {//interpolation fit of temperature vs. R
@@ -271,24 +288,25 @@ float R2TV1(float r, int sensor) {//interpolation fit of temperature vs. R
  */
 
 int pwmstate = 0;
-long pwmt0 = 0;
+long int pwmt0 = 0;
 int pwmoutput = 0;
-long pt = 0;
+long int pt = 0;
+
 //  PWM toggling function
-int pwm_tog(float pwr, long tsec, long tms, long pwm_periodsec){
+int pwm_tog(float pwr, long int tsec, long int tms, long int pwm_periodsec){
     //
     //   pwr:  controller output (Watts)
     //   tsec:  current time (seconds)
-    //   tms:   current time (ms)
+    //   ptms:   current time (ms)
     //   pwm_periodsec:  PWM signal period (sec)
     //   pt:    pwm ON time (ms)
     //
-    static long nexttime_pwm;
-    static long nextoff_pwm;
+    static long int nexttime_pwm;
+    static long int nextoff_pwm;
     if (tsec > nexttime_pwm){ 
         // schedule start of next 
         nexttime_pwm += pwm_periodsec;
-        pwmt0 = tms;  // store the start time of PWM cycle (ms)
+        pwmt0 = ptms;  // store the start time of PWM cycle (ms)
         // lock the pwm value for this period
         if (pwr > Pmax) pwr = Pmax;
         if (pwr < 0.0)  pwr = 0.0;
@@ -296,7 +314,7 @@ int pwm_tog(float pwr, long tsec, long tms, long pwm_periodsec){
         nextoff_pwm = pwmt0 + pt;
         }    
     // note pwm value can change during one PWM period!
-    if (tms < nextoff_pwm) {
+    if (ptms < nextoff_pwm) {
         pwmoutput = HEAT_ON ;
         }
     else {
@@ -334,7 +352,7 @@ int PID(float T, float goal, int cmd){
         case INIT: {
             //eint = 0.0;
             //  Preset the integral term b/c steady state value is ~12%
-            eint = 0.12 / Kp;
+            eint = 0.12 / Ki;
             edot = 0.0;
             for (int i=0;i<EdotN;i++){
                 edotbuf[i] = 0.0;
@@ -419,30 +437,33 @@ void loop() {
   float x=0;
   float a=0;
   float y=0;  
-  long tsec = 0;  // elapsed time
-  long tmin = 0;
-  int thr  = 0;  
+  long int tsec = 0;  // elapsed time
+  long int tmin = 0;
+  long int tms = 0;
+  int t_hour  = 0;
   
   // text (char buffers, not String()s)
   
-  static long  nexttime_estim, nexttime_ctl, nexttime_disp;
+  static long int  nexttime_estim = 0;
+  static long int  nexttime_ctl = 0;
+  static long int  nexttime_disp = 0;
     
-  unsigned long tms ;
+  unsigned long int ptms ;
   
   // update period for estimator
-  static long est_periodsec   = (long) int(min2sec*DT);   //  estimation period (sec)
+  static long int est_periodsec   = (long) int(min2sec*DT);   //  estimation period (sec)
   
   // Update period for controller
-  static long ctl_periodsec = (long) int(min2sec*Ctldt);  //  control period   (sec)
+  static long int ctl_periodsec = (long) int(min2sec*Ctldt);  //  control period   (sec)
 
   // PWM output signal period
-  static long pwm_periodsec = (long) int(PWMtime*float(min2sec)); //
+  static long int pwm_periodsec = (long) int(PWMtime*float(min2sec)); //
    
   //   what time is it? (time since start in absolute units)
-  tms = millis();
-  tsec = long(float(tms)/1000.0);
-  tmin = long(tsec/60.0);
-  thr  = int(tmin/60.0); 
+  tms     = (long int) millis();
+  tsec    = (long int)(float(tms)/1000.0);
+  tmin    = (long int)(tsec/60);
+  t_hour  = tmin/60;
 
   //  are we alive?? flash LED
   if (tsec % 2 < 1)
@@ -514,11 +535,11 @@ if(tsec > nexttime_disp){
         nexttime_disp += DISP_periodsec;
         sprintf(str,"T:%s S: %s",  dtostrf(temperature,5,1,ch_arr_02), dtostrf(set_point_temp,3,0,ch_arr_01));
         disp(str); 
-        int min = tmin - 60*thr;
-        int sec = (tsec - (long)(60.0*(float)tmin));
+        int dmin = tmin - 60*t_hour;
+  //      int sec = (int)(tsec - (long int)(60*tmin));
  //       modename.toCharArray(ch_arr_01,sizeof(ch_arr_01));
         // add current PWM ratio to display
-        sprintf(str,"%02d:%02d %4s %3d%%", thr, min, modename, int(100*power/Pmax));
+        sprintf(str,"%02d:%02d %4s %3d%%", t_hour, dmin, modename, int(100*power/Pmax));
         line2(str);  
         }
 }  // end of loop()
