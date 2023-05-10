@@ -293,7 +293,7 @@ int pwmoutput = 0;
 long int pt = 0;
 
 //  PWM toggling function
-int pwm_tog(float pwr, long int tsec, long int tms, long int pwm_periodsec){
+int pwm_tog(float pwr, long int tsec, long int ptms, long int pwm_periodsec){
     //
     //   pwr:  controller output (Watts)
     //   tsec:  current time (seconds)
