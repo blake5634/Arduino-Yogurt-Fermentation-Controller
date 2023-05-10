@@ -12,6 +12,6 @@ Hardware Schematic Diagram:  ![Wiring Schematic Diagram](Hardware/yogurtControll
 * May '23
 
 Utility
-to help calibrate thermistors: CalibrationAndModels/r2T.py
+to help calibrate thermistors: CalibrationAndModels/calTemp/calTemp.ino
 
 
