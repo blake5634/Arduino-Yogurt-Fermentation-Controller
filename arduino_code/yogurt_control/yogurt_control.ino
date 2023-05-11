@@ -168,12 +168,12 @@ void setup() {
        // line2(str);
         delay(1000);
         r1 = readResistance();
-        sprintf(str,"%02d  T: %d F ", nsamp, int(R2T(r1,WHITESENSOR)) ) ;
+        sprintf(str,"%02d  T: %d F ", nsamp, int(R2Tnew(r1,WHITESENSOR)) ) ;
         line2(str);    
         delay(del);
         sum += r1;
       }
-  tmptemp = R2T(sum/nsamp, WHITESENSOR);
+  tmptemp = R2Tnew(sum/nsamp, WHITESENSOR);
   
   // regardless of EEPROM state:
   if (tmptemp < Tamb and tmptemp > 0.0) {  // unplugged sensor = -INF
@@ -206,6 +206,44 @@ float readResistance(){
     float Vin = (5.0/1023.0) * float(ain());
     float Rth = R1 / ((Vcc/Vin)-1.0);
     return Rth  ; 
+}
+
+
+
+float R2Tnew(float r, int sensor) {
+    // measured resistance values
+    float p[] = {29400, 13000, 10920, 7565, 5080, 4680, 2400, 2080, 1530, 1105, 1100};
+    //measured temp values
+    float tarray[] = {32, 65, 74, 93, 113, 118, 157, 166, 184, 207, 213};
+    int nintpts = 11;
+
+    float minr = 1100.0;
+    float maxr = 29400.0;
+    float minT = 32.0;
+    float maxT = 213.0;
+    float tval = -1.0;
+
+    if (sensor == WHITESENSOR) {
+        if (r > maxr) {
+            return minT;
+        }
+        if (r < minr) {
+            return maxT;
+        }
+
+        for (int i = 0; i < nintpts; i++) {
+            if (r >= p[i]) {
+                float dTdR = (tarray[i] - tarray[i-1]) / (p[i] - p[i-1]);
+                tval = tarray[i] + (r - p[i]) * dTdR;
+                break;
+            }
+        }
+    } else {
+        disp("Error:R2Tnew()");
+        while (1) ;
+        }
+
+    return tval;
 }
 
 float  R2T(float r, int sensor) {//interpolation fit of temperature vs. R
@@ -479,7 +517,7 @@ void loop() {
     for (int i=0;i<5;i++){   // acquire and avg R value of thermistor
         r1 = readResistance();
         sum += r1; } 
-    temperature = R2T(sum/5.0 , WHITESENSOR);
+    temperature = R2Tnew(sum/5.0 , WHITESENSOR);
     if(Gstate==FERMENT) {
         PID(temperature, Tferment, UPDATE);  //  update edot etc.
         }
