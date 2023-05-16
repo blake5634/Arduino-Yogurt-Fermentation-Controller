@@ -80,6 +80,17 @@ static long int min2sec=60;
  *   no longer needed but enabled to compile old R2T()
  *
  */
+
+
+
+//  3/16/23
+//  Issue: TODO:   There seems to still be a +2degF error during
+//                  actual operation compared to calTemp.in
+//       Hypothesis:  change in supply voltage between programmer and
+//                    120VAC causes this offset.
+//       Prop fix:    implement -2.0degF sensor offset in r2TV1()
+//
+
  
 #define SENSOR_OFFSET_WHITE   2.0  //  Empirical: add this to computed temp (minimize error at Tferment)
 #define SENSOR_CORRECTION_DENATURE_WHITE  -8.0  //calib adjust for high temps
