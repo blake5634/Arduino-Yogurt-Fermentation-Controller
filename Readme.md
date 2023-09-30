@@ -14,6 +14,3 @@ Hardware Schematic Diagram:  ![Wiring Schematic Diagram](Hardware/yogurtControll
 
 Utility
 to help calibrate thermistors: CalibrationAndModels/calTemp/calTemp.ino
-
-
-![Hardware Design CAD (youTube):](https://youtu.be/vZsNuJUdTFA)
