@@ -2,8 +2,8 @@
 
 arduino code requires LiquidCrystal_I2C-1.1.2
 
-
-[![Hardware Design CAD (youTube)](https://img.youtube.com/vi/vZsNuJUdTFA/0.jpg)](https://www.youtube.com/watch?v=vZsNuJUdTFA "CAD of Yogurt Controller Hardware")
+# CAD video (click)
+[![Hardware Design CAD Video (click for youTube)](https://img.youtube.com/vi/vZsNuJUdTFA/0.jpg)](https://www.youtube.com/watch?v=vZsNuJUdTFA "CAD of Yogurt Controller Hardware")
 
 
 Hardware Schematic Diagram:  ![Wiring Schematic Diagram](Hardware/yogurtControllerSchematic2023.png?raw=true)
