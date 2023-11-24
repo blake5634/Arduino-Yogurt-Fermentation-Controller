@@ -76,9 +76,24 @@ static long int min2sec=60;
 
 #define WHITESENSOR 0  // two different thermistors
 #define BLACKSENSOR 1
+/*
+ *   no longer needed but enabled to compile old R2T()
+ *
+ */
+
+
+
+//  3/16/23
+//  Issue: TODO:   There seems to still be a +2degF error during
+//                  actual operation compared to calTemp.in
+//       Hypothesis:  change in supply voltage between programmer and
+//                    120VAC causes this offset.
+//       Prop fix:    implement -2.0degF sensor offset in r2TV1()
+//
+
+ 
 #define SENSOR_OFFSET_WHITE   2.0  //  Empirical: add this to computed temp (minimize error at Tferment)
 #define SENSOR_CORRECTION_DENATURE_WHITE  -8.0  //calib adjust for high temps
-
 
 #define RELAY_Socket01 7
 #define RELAY_Socket02 8
@@ -148,32 +163,28 @@ void setup() {
    * 
    */
 
-  // BUT, if milk is cold then we intend to force system into COOK state
-  // take an average of the temperature for like 3 minutes
-
   int nsamp = 0;
-  // When we wake up after a normal batch concludes we need to get back to
-  // state "COOK" (0).   Also need this if there is some glitch or error.
-  //  Key is we need to get to state 0 if milk is COLD (below ambient) because
+  // When we wake up after a normal batch concludes, we need to get back 
+  // from "FERMENT" to state "COOK" (0).   
+  //  Also need this if there is some glitch or error.
+  //  Key is we need to change to COOK state if milk is COLD (below ambient) because
   //  that is most likely a new batch from fridge.
   disp("Chkg milk st:");
   float sum = 0.0, r1=0.0, tmptemp=0.0;
   int tmp = 100 * (int) (10 * STATE_TEMP_TIME);   // perserve decimal and convert to ms
-  int del = int( tmp /(STATE_TEMP_SAMP_MIN)); // ms per samp
-  int loopcnt = int(STATE_TEMP_TIME*STATE_TEMP_SAMP_MIN);
-  loopcnt = 4;
+  int loopcnt =  4;
+  
   for (int i=0;i<loopcnt;i++){   // acquire and avg R value of thermistor
         nsamp++;
        // sprintf(str, "%2d  %d   ",nsamp,del);
-       // line2(str);
-        delay(1000);
+       // line2(str); 
         r1 = readResistance();
-        sprintf(str,"%02d  T: %d F ", nsamp, int(R2T(r1,WHITESENSOR)) ) ;
-        line2(str);    
-        delay(del);
         sum += r1;
+        sprintf(str,"%02d  T: %d F ", nsamp, int(R2Tnew(r1,WHITESENSOR)) ) ;
+        line2(str);    
+        delay(1500);
       }
-  tmptemp = R2T(sum/nsamp, WHITESENSOR);
+  tmptemp = R2Tnew(sum/nsamp, WHITESENSOR);
   
   // regardless of EEPROM state:
   if (tmptemp < Tamb and tmptemp > 0.0) {  // unplugged sensor = -INF
@@ -208,6 +219,41 @@ float readResistance(){
     return Rth  ; 
 }
 
+
+
+float R2Tnew(float r, int sensor) {
+    // measured resistance values (last two pts are "fake" for better end-interpolation
+    float p[] = {29400, 13000, 10920, 7565, 5080, 4680, 2400, 2080, 1530, 1105, 1100};
+    //measured temp values
+    float tarray[] = {32, 65, 74, 93, 113, 118, 157, 166, 184, 207, 213};
+    int nintpts = 11;
+    float minr = 1100.0;
+    float maxr = 29400.0;
+    float minT = 32.0;
+    float maxT = 213.0;
+    float tval = -1.0;
+
+    if (sensor == WHITESENSOR) {
+        if (r > maxr) return minT;
+        if (r < minr) return maxT;
+        for (int i = 0; i < nintpts; i++) {
+            if (r >= p[i]) {
+                float dTdR = (tarray[i] - tarray[i-1]) / (p[i] - p[i-1]);
+                tval = tarray[i] + (r - p[i]) * dTdR;
+                break;
+            }
+        }
+    } else {
+        disp("Error:R2Tnew()");
+        while (1) ;
+        }
+
+    return tval;
+}
+
+/*   Disable for testing R2Tnew()
+ *    
+ 
 float  R2T(float r, int sensor) {//interpolation fit of temperature vs. R
     //int nintpts =  19 ;
     //float  tarray[] = { 44.0, 53.0, 62.0, 71.1, 81.1, 92.0, 102.7, 121.1, 138.0, 140.0, 145.8, 152.0, 153.0, 165.0, 166.0, 178.0, 178.0, 184.8, 185.0 };
@@ -246,11 +292,11 @@ float  R2T(float r, int sensor) {//interpolation fit of temperature vs. R
     }
     // SENSOR_OFFSET_WHITE is an empirical factor to zero error at Tferment with "white" thermistor
     if (sensor == WHITESENSOR) {
-        /*
-         *  Empirical thermistor corrections
-         *   1) SENSOR_OFFSET_WHITE    a constant offset to correct temp at t=Tferment (where PID operates)
-         *   2) hack_highT             gradually increasing correction for higher temps > Tferment (for accurate COOK)
-         */
+        //
+         //  Empirical thermistor corrections
+         //  1) SENSOR_OFFSET_WHITE    a constant offset to correct temp at t=Tferment (where PID operates)
+         //  2) hack_highT             gradually increasing correction for higher temps > Tferment (for accurate COOK)
+        
         float retval = 0.0;
         retval = tval + SENSOR_OFFSET_WHITE;  // correction 1)
         float hack_highT = 0.0;
@@ -261,6 +307,7 @@ float  R2T(float r, int sensor) {//interpolation fit of temperature vs. R
         }
     else return(float(tval)); // no corrections yet for black sensor
     }
+*/
 
 float R2TV1(float r, int sensor) {//interpolation fit of temperature vs. R
     int nintpts =  19 ;
@@ -479,7 +526,7 @@ void loop() {
     for (int i=0;i<5;i++){   // acquire and avg R value of thermistor
         r1 = readResistance();
         sum += r1; } 
-    temperature = R2T(sum/5.0 , WHITESENSOR);
+    temperature = R2Tnew(sum/5.0 , WHITESENSOR);
     if(Gstate==FERMENT) {
         PID(temperature, Tferment, UPDATE);  //  update edot etc.
         }

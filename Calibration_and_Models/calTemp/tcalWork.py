@@ -13,42 +13,73 @@ SENSOR_CORRECTION_NULL_WHITE     =  160
 Tferment = 110.0
 Tdenature = 195.0
 
+def readcsv(name):
+    f = open(name,'r')
+    #
+    #
+    #   Read in the .csv data
+    #
+    tref = []   # actual temp
+    tcalc = []  # old interp result
+    rd = []    # resistance data
+    next(f)
+    next(f)  # burn blank and header lines
+
+    for l in f:
+        d = l.split(',')
+        tref.append(float(d[0]))
+        tcalc.append(float(d[1]))
+        rd.append(float(d[2]))
+    print('I got {:} data points'.format(len(rd)))
+    return tref,tcalc,rd
+
+def F2K(f):
+    K = (f-32)/1.8 + 273.15
+    return K
+def K2F(k):
+    F = (k-273.15)*9/5 + 32
+    return F
+
+def makeSHeqn(rd,tref):  # actually defer
+    rlog = np.zeros(len(rd))
+    for i,r in enumerate(rd):
+        rlog[i] = np.ln(r)
+    ## not done: see https://www.mstarlabs.com/sensors/thermistor-calibration.html
+
+
+
 def R2T(r, sensor):
-    rth_white = [25000.0000, 19460.0000, 14450.0000, 11470.0000, 10480.0000,
-                 7780.0000, 5340.0000, 3840.0000, 2290.0000, 1410.0000, 115.0000]
-
-    rth_black = [30000.0000, 21370.0000, 15250.0000, 11700.0000, 10440.0000,
-                 7420.0000, 4760.0000, 3240.0000, 1740.0000,  953.0000, 115.0000]
-
-    tarray = [33.1000, 45.8000, 59.2000, 70.6000, 73.7000,
-              88.4000, 107.7000, 125.8000, 156.8000, 194.6000, 225.0000]
-
-    p = None
-    nintpts = len(tarray)
-
     if sensor == WHITESENSOR:
-        p = rth_white
-    elif sensor == BLACKSENSOR:
-        p = rth_black
+        #    update with May'23 data (average close points)
+        #         last 2 pts are "fake" to continue interploation
+        p = [29400,13000,10920,7565,5080,4680,2400,2080,1530,1105, 1100]
+        tarray = [32,65,74,93,113,118,157,166,184, 207, 213]
+    else:
+        str = " Error: R2T()"
 
+    nintpts = len(tarray)
     tval = -1.0
 
+    minr = 1100.0 #fake
+    maxr = 29400.0 #np.max(rth_white)
+    minT = 32.0 # np.min(tarray)
+    maxT = 213.0  # fake
+
+    # note NTC
+    if r > maxr:
+        return minT
+    if r < minr:
+        return maxT
+
+    # now interpolate
     for i in range(nintpts):
-        if r > p[i+1]:
-            dTdR = (tarray[i] - tarray[i - 1]) / (p[i+1] - p[i])
+        #print('..> r: {:} i: {:} p[i+1]: {:}'.format(r,i,p[i+1]))
+        if  r >= p[i]:
+            dTdR = (tarray[i] - tarray[i-1]) / (p[i] - p[i-1])
             tval = tarray[i] + (r - p[i]) * dTdR
             break
 
-    if False and sensor == WHITESENSOR:
-        retval = tval + SENSOR_OFFSET_WHITE
-        hack_highT = 0.0
-        if retval > Tferment:
-            delta = SENSOR_CORRECTION_DENATURE_WHITE / (Tdenature - Tferment)
-            hack_highT = (tval - Tferment) * delta
-        retval += hack_highT
-        return retval
-    else:
-        return float(tval)
+    return float(tval)
 
 def interp(rm,R,T):
     tval = -1
@@ -69,7 +100,7 @@ def interp(rm,R,T):
 # Calibration data
 #    ref: Thermapen digital cooking Thermo
 #
-f = open('calData10-May-23_WHITE.csv','r')
+fname = 'calData10-May-23_WHITE.csv'
 #
 #   Tref,  Tcalc, R
 #      Tref = Thermapen
@@ -85,14 +116,7 @@ float readResistance(){
 }
 '''
 
-tref = []
-tcalc = []
-tnew = []
-r = []
-
-next(f)
-next(f)  # burn blank and header lines
-
+tref,tcalc,r = readcsv(fname)
 
 def r2Tv3(r):
     # linear term
@@ -110,18 +134,6 @@ def r2Tv3(r):
     pterm = pp1*(1.0 - ((r-r0)/r2)**2)
     return a*r + b + pterm
 
-#
-#
-#   Read in the .csv data
-#
-#
-for l in f:
-    d = l.split(',')
-    tref.append(float(d[0]))
-    tcalc.append(float(d[1]))
-    r.append(float(d[2]))
-    
-print('I got {:} data points'.format(len(r)))
 
 #  add some fake data points to help polynomial fitting
 #    (these come from reading the plot of r vs T(!)
@@ -146,14 +158,15 @@ print('I got {:} data points'.format(len(r)))
 #print('singvals',info[2])
 #print('rcond',info[3])
 
-#rp = np.arange(100,3000,100) # resistance values
+rp = np.arange(500,30000,500) # resistance values
 #tnew = npp.polyval(rp, pc)
-tnew = np.zeros(len(r))
-
-for i,r1 in enumerate(r):
+tnew = []
+rnew = []
+for i,r1 in enumerate(rp):
     tt = R2T(r1,WHITESENSOR)
-    print('r: {:}  temp: {:}'.format(r1,tt))
-    tnew[i] = tt
+    rnew.append(r1)
+    print('r: {:8.2f}  temp: {:6.2f}'.format(r1,tt))
+    tnew.append(tt)
 #print('rp:',rp)
 #print('tnew',tnew)
 print('lens:', len(r),len(tnew))
@@ -183,12 +196,34 @@ if False:
 
 
 ax,fig = plt.subplots()
-plt.plot(r,tref,r,tnew)
-plt.title('Accurate Temp vs. R with Calib')
+plt.plot(r,tref,rnew,tnew)
+plt.title('Accurate Temp vs. R with Calib: Tdenature')
 a = plt.gca()
 plt.grid()
-a.set_xlim([1000,6000])
-a.set_ylim([100,210])
+a.set_xlim([1000,3000])
+a.set_ylim([150,210])
+a.set_ylabel('Temp (deg F)')
+a.set_xlabel('R (Ohm)')
+
+
+ax,fig = plt.subplots()
+plt.plot(r,tref,rnew,tnew)
+plt.title('Accurate Temp vs. R with Calib: Tferment')
+a = plt.gca()
+plt.grid()
+a.set_xlim([5200,5700])
+a.set_ylim([105,115])
+a.set_ylabel('Temp (deg F)')
+a.set_xlabel('R (Ohm)')
+
+
+ax,fig = plt.subplots()
+plt.plot(r,tref,rnew,tnew)
+plt.title('Accurate Temp vs. R with Calib: T Fridge')
+a = plt.gca()
+plt.grid()
+a.set_xlim([19000, 23000])
+a.set_ylim([45,55])
 a.set_ylabel('Temp (deg F)')
 a.set_xlabel('R (Ohm)')
 
