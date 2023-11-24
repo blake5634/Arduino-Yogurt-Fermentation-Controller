@@ -27,6 +27,10 @@ int ain() {
     return data;
 //    return 583 ;  // stub this for ADC(T=95F)
 }
+int vref_ain() {
+    int data = analogRead(VREF_PIN);
+    return data;
+}
 
 float readResistance(){
     float Vcc = 5.0;
@@ -149,19 +153,21 @@ void loop() {
   float sum;
   int navgR = 5;
   sum = 0.0;
+  // Get thermistor resistance
   for (int i=0;i<navgR;i++){   // acquire and avg R value of thermistor
     sum += readResistance();
     delay(100); }
   float Ravg = sum/navgR ;
+  //  Convert to temperature
   float temperature = R2T(Ravg , WHITESENSOR);
-
-
+  //  Get vref ADC count
+  int VrefCnt = vref_ain();
  //  update display
-  sprintf(str,"R: %s",  dtostrf(Ravg,7,1,ch_arr_02));
+  sprintf(str,"R: %s Vref:",  dtostrf(Ravg,7,1,ch_arr_02));
   disp(str);
 //       modename.toCharArray(ch_arr_01,sizeof(ch_arr_01));
 // add current PWM ratio to display
-  sprintf(str,"T: %s",  dtostrf(temperature, 7, 1, ch_arr_01));
+  sprintf(str,"T: %s %d",  dtostrf(temperature, 7, 1, ch_arr_01), VrefCnt);
   line2(str);
 
 }  // end of loop()
