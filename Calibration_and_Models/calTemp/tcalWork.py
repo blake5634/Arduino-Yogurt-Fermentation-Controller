@@ -3,14 +3,18 @@ import numpy.polynomial.polynomial as npp
 import matplotlib.pyplot as plt
 import control as ctl
 
-WHITESENSOR    = 0
-BLACKSENSOR    = 1
 
-SENSOR_OFFSET_WHITE              =  2.0
-SENSOR_CORRECTION_DENATURE_WHITE =  -4.0
-SENSOR_CORRECTION_AMBIENT_WHITE  =  0.0
-SENSOR_CORRECTION_NULL_WHITE     =  160
-Tferment = 110.0
+MAKE_PLOTS = True
+EDGE_TESTS = False
+
+
+WHITESENSOR    = 1
+BLACKSENSOR    = 0
+
+# fudge factor to correct/adjust interp algorithm.
+SENSOR_OFFSET_WHITE    =  -3.2
+
+Tferment = 107.0
 Tdenature = 195.0
 
 def readcsv(name):
@@ -52,32 +56,31 @@ def R2T(r, sensor):
     if sensor == WHITESENSOR:
         #    update with May'23 data (average close points)
         #         last 2 pts are "fake" to continue interploation
-        p = [29400,13000,10920,7565,5080,4680,2400,2080,1530,1105, 1100]
+        rarray = [29400,13000,10920,7565,5080,4680,2400,2080,1530,1105, 1100]
         tarray = [32,65,74,93,113,118,157,166,184, 207, 213]
     else:
         str = " Error: R2T()"
 
-    nintpts = len(tarray)
+    nTempPts = len(tarray)
     tval = -1.0
 
-    minr = 1100.0 #fake
-    maxr = 29400.0 #np.max(rth_white)
-    minT = 32.0 # np.min(tarray)
-    maxT = 213.0  # fake
+    minr = rarray[-1]
+    maxr = rarray[ 0]
+    minT = tarray[ 0]
+    maxT = tarray[-1]
 
     # note NTC
     if r > maxr:
-        return minT
+        return minT + SENSOR_OFFSET_WHITE
     if r < minr:
-        return maxT
+        return maxT + SENSOR_OFFSET_WHITE
 
     # now interpolate
-    for i in range(nintpts):
-        #print('..> r: {:} i: {:} p[i+1]: {:}'.format(r,i,p[i+1]))
-        if  r >= p[i]:
-            dTdR = (tarray[i] - tarray[i-1]) / (p[i] - p[i-1])
-            FF = -2.75   # fudge factor!!
-            tval = tarray[i] + (r - p[i]) * dTdR + FF
+    for i in range(nTempPts):
+        #print('..> r: {:} i: {:} rarray[i+1]: {:}'.format(r,i,rarray[i+1]))
+        if  r >= rarray[i]:
+            dTdR = (tarray[i] - tarray[i-1]) / (rarray[i] - rarray[i-1])
+            tval = tarray[i] + (r - rarray[i]) * dTdR + SENSOR_OFFSET_WHITE
             break
 
     return float(tval)
@@ -135,6 +138,80 @@ tref,tcalc,rdata = readcsv(fname)
     #pterm = pp1*(1.0 - ((r-r0)/r2)**2)
     #return a*r + b + pterm
 
+rp = np.arange(500,30000,500) # resistance values
+#tModel = npp.polyval(rp, pc)
+tModel = []
+rModel = []
+for i,r1 in enumerate(rp):
+    tt = R2T(r1,WHITESENSOR)
+    rModel.append(r1)  # x-axis for modeled T(R)
+    #print('r: {:8.2f}  temp: {:6.2f}'.format(r1,tt))
+    tModel.append(tt)  # y-axis for modeled T(R)
+#print('rp:',rp)
+#print('tModel',tModel)
+print('lens:', len(rdata),len(tModel))
+
+if MAKE_PLOTS:
+    ax,fig = plt.subplots()
+    plt.plot(rdata,tref,rModel,tModel)
+    plt.title('Accurate Temp vs. R with Calib: Tdenature')
+    a = plt.gca()
+    plt.grid()
+    a.legend(['Actual T(R)', 'Computed T(R)'])
+    a.set_xlim([1000,3000])
+    a.set_ylim([150,210])
+    a.set_ylabel('Temp (deg F)')
+    a.set_xlabel('R (Ohm)')
+
+
+    ax,fig = plt.subplots()
+    plt.plot(rdata,tref,rModel,tModel)
+    plt.title('Accurate Temp vs. R with Calib: Tferment')
+    a = plt.gca()
+    plt.grid()
+    a.legend(['Actual T(R)', 'Computed T(R)'])
+    a.set_xlim([5200,5700])
+    a.set_ylim([105,115])
+    a.set_ylabel('Temp (deg F)')
+    a.set_xlabel('R (Ohm)')
+
+
+    ax,fig = plt.subplots()
+    plt.plot(rdata,tref,rModel,tModel)
+    plt.title('Accurate Temp vs. R with Calib: T Fridge')
+    a = plt.gca()
+    plt.grid()
+    a.legend(['Actual T(R)', 'Computed T(R)'])
+    a.set_xlim([19000, 23000])
+    a.set_ylim([45,55])
+    a.set_ylabel('Temp (deg F)')
+    a.set_xlabel('R (Ohm)')
+
+    plt.show()
+
+if EDGE_TESTS:
+    # test some edge cases for r value
+
+    #    update with May'23 data (average close points)
+    #         last 2 pts are "fake" to continue interploation
+    rarray = [29400,13000,10920,7565,5080,4680,2400,2080,1530,1105, 1100]
+    tarray = [32,65,74,93,113,118,157,166,184, 207, 213]
+
+    rmin = rarray[-1]
+    rmax = rarray[0]
+
+    dr = .05
+    testrange = 5
+
+    print('near rmin:')
+    rr = np.arange(rmin-testrange,rmin+testrange, dr)
+    for i, r in enumerate(rr):
+        print(f'r: {r:8.1f}  t: {R2T(r,WHITESENSOR):4.1f} ')
+
+    print('near rmax:')
+    rr = np.arange(rmax-testrange,rmax+testrange, dr)
+    for i, r in enumerate(rr):
+        print(f'r: {r:8.1f}  t: {R2T(r,WHITESENSOR):4.1f} ')
 
 #  add some fake data points to help polynomial fitting
 #    (these come from reading the plot of r vs T(!)
@@ -159,53 +236,3 @@ tref,tcalc,rdata = readcsv(fname)
 #print('singvals',info[2])
 #print('rcond',info[3])
 
-rp = np.arange(500,30000,500) # resistance values
-#tModel = npp.polyval(rp, pc)
-tModel = []
-rModel = []
-for i,r1 in enumerate(rp):
-    tt = R2T(r1,WHITESENSOR)
-    rModel.append(r1)  # x-axis for modeled T(R)
-    #print('r: {:8.2f}  temp: {:6.2f}'.format(r1,tt))
-    tModel.append(tt)  # y-axis for modeled T(R)
-#print('rp:',rp)
-#print('tModel',tModel)
-print('lens:', len(rdata),len(tModel))
-
-
-ax,fig = plt.subplots()
-plt.plot(rdata,tref,rModel,tModel)
-plt.title('Accurate Temp vs. R with Calib: Tdenature')
-a = plt.gca()
-plt.grid()
-a.legend(['Actual T(R)', 'Computed T(R)'])
-a.set_xlim([1000,3000])
-a.set_ylim([150,210])
-a.set_ylabel('Temp (deg F)')
-a.set_xlabel('R (Ohm)')
-
-
-ax,fig = plt.subplots()
-plt.plot(rdata,tref,rModel,tModel)
-plt.title('Accurate Temp vs. R with Calib: Tferment')
-a = plt.gca()
-plt.grid()
-a.legend(['Actual T(R)', 'Computed T(R)'])
-a.set_xlim([5200,5700])
-a.set_ylim([105,115])
-a.set_ylabel('Temp (deg F)')
-a.set_xlabel('R (Ohm)')
-
-
-ax,fig = plt.subplots()
-plt.plot(rdata,tref,rModel,tModel)
-plt.title('Accurate Temp vs. R with Calib: T Fridge')
-a = plt.gca()
-plt.grid()
-a.legend(['Actual T(R)', 'Computed T(R)'])
-a.set_xlim([19000, 23000])
-a.set_ylim([45,55])
-a.set_ylabel('Temp (deg F)')
-a.set_xlabel('R (Ohm)')
-
-plt.show()
