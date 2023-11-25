@@ -21,7 +21,7 @@ def readcsv(name):
     #
     tref = []   # actual temp
     tcalc = []  # old interp result
-    rd = []    # resistance data
+    rd = []     # resistance data
     next(f)
     next(f)  # burn blank and header lines
 
@@ -40,11 +40,11 @@ def K2F(k):
     F = (k-273.15)*9/5 + 32
     return F
 
-def makeSHeqn(rd,tref):  # actually defer
-    rlog = np.zeros(len(rd))
-    for i,r in enumerate(rd):
-        rlog[i] = np.ln(r)
-    ## not done: see https://www.mstarlabs.com/sensors/thermistor-calibration.html
+#def makeSHeqn(rd,tref):  # actually defer
+    #rlog = np.zeros(len(rd))
+    #for i,r in enumerate(rd):
+        #rlog[i] = np.ln(r)
+    ### not done: see https://www.mstarlabs.com/sensors/thermistor-calibration.html
 
 
 
@@ -76,31 +76,33 @@ def R2T(r, sensor):
         #print('..> r: {:} i: {:} p[i+1]: {:}'.format(r,i,p[i+1]))
         if  r >= p[i]:
             dTdR = (tarray[i] - tarray[i-1]) / (p[i] - p[i-1])
-            tval = tarray[i] + (r - p[i]) * dTdR
+            FF = -2.75   # fudge factor!!
+            tval = tarray[i] + (r - p[i]) * dTdR + FF
             break
 
     return float(tval)
 
-def interp(rm,R,T):
-    tval = -1
-    for i in range(len(R)):
-        #if R[i] < 3000 and R[i] > 2000:
-            #print ('interp:',rm,R[i])
-        if rm >= R[i]:
-            dTdR = float(T[i]-T[i-1])/float(R[i]-R[i-1]) # i-1 because reverse order
-            tval = float(T[i]) + float((rm-R[i])) * dTdR
-            break
-        else:
-            pass 
-    #if rm < 3000 and rm > 2000:
-        #print('rm {:8.1f} R[i]: {:8.1f} T[i]: {:4.1f} dTdR: {:.3f} tval: {}'.format(rm,R[i],T[i],dTdR,tval))
-    return tval
-        
+#def interp(rm,R,T):
+    #tval = -1
+    #for i in range(len(R)):
+        ##if R[i] < 3000 and R[i] > 2000:
+            ##print ('interp:',rm,R[i])
+        #if rm >= R[i]:
+            #dTdR = float(T[i]-T[i-1])/float(R[i]-R[i-1]) # i-1 because reverse order
+            #tval = float(T[i]) + float((rm-R[i])) * dTdR
+            #break
+        #else:
+            #pass
+    ##if rm < 3000 and rm > 2000:
+        ##print('rm {:8.1f} R[i]: {:8.1f} T[i]: {:4.1f} dTdR: {:.3f} tval: {}'.format(rm,R[i],T[i],dTdR,tval))
+    #return tval
+
 ##########################################   Read in data
 # Calibration data
 #    ref: Thermapen digital cooking Thermo
 #
 fname = 'calData10-May-23_WHITE.csv'
+fname = 'calData24-Nov-23_WHITE.csv'
 #
 #   Tref,  Tcalc, R
 #      Tref = Thermapen
@@ -116,23 +118,22 @@ float readResistance(){
 }
 '''
 
-tref,tcalc,r = readcsv(fname)
+tref,tcalc,rdata = readcsv(fname)
 
-def r2Tv3(r):
-    # linear term
-    p1x = 110   # from orig data pts
-    p1y = 207
-    p2x = 2940
-    p2y = 32
-    a  = (p2y-p1y)/(p2x-p1x)
-    b  = p1y - a*p1x
-
-    # parabolic term
-    pp1 = -55  # deg F
-    r2 = (p2x-p1x)/2.0
-    r0 = p1x + r2
-    pterm = pp1*(1.0 - ((r-r0)/r2)**2)
-    return a*r + b + pterm
+#def r2Tv3(r):
+    ## linear term
+    #p1x = 110   # from orig data pts
+    #p1y = 207
+    #p2x = 2940
+    #p2y = 32
+    #a  = (p2y-p1y)/(p2x-p1x)
+    #b  = p1y - a*p1x
+    ## parabolic term
+    #pp1 = -55  # deg F
+    #r2 = (p2x-p1x)/2.0
+    #r0 = p1x + r2
+    #pterm = pp1*(1.0 - ((r-r0)/r2)**2)
+    #return a*r + b + pterm
 
 
 #  add some fake data points to help polynomial fitting
@@ -159,47 +160,25 @@ def r2Tv3(r):
 #print('rcond',info[3])
 
 rp = np.arange(500,30000,500) # resistance values
-#tnew = npp.polyval(rp, pc)
-tnew = []
-rnew = []
+#tModel = npp.polyval(rp, pc)
+tModel = []
+rModel = []
 for i,r1 in enumerate(rp):
     tt = R2T(r1,WHITESENSOR)
-    rnew.append(r1)
-    print('r: {:8.2f}  temp: {:6.2f}'.format(r1,tt))
-    tnew.append(tt)
+    rModel.append(r1)  # x-axis for modeled T(R)
+    #print('r: {:8.2f}  temp: {:6.2f}'.format(r1,tt))
+    tModel.append(tt)  # y-axis for modeled T(R)
 #print('rp:',rp)
-#print('tnew',tnew)
-print('lens:', len(r),len(tnew))
-
-#rth_bk.sort(reverse=True)
-#rth_wh.sort(reverse=True)
-#rth_avg.sort(reverse=True)
-#tmp.sort(reverse=False) # because NTC
-
-if False:
-    ax,fig = plt.subplots()
-    plt.plot(tref,tcalc,tref,tref)
-    plt.title('original interp vs. Accurate Temp. (deg F)')
-    a = plt.gca()
-    plt.grid()
-    a.set_ylabel('Orig interp value')
-    a.set_xlabel('Accurate Temperature')
-
-
-    ax,fig = plt.subplots()
-    plt.plot(r,tcalc)
-    plt.title('original interp vs. R (Ohm)')
-    a = plt.gca()
-    plt.grid()
-    a.set_ylabel('Original Interp')
-    a.set_xlabel('R (Ohm)')
+#print('tModel',tModel)
+print('lens:', len(rdata),len(tModel))
 
 
 ax,fig = plt.subplots()
-plt.plot(r,tref,rnew,tnew)
+plt.plot(rdata,tref,rModel,tModel)
 plt.title('Accurate Temp vs. R with Calib: Tdenature')
 a = plt.gca()
 plt.grid()
+a.legend(['Actual T(R)', 'Computed T(R)'])
 a.set_xlim([1000,3000])
 a.set_ylim([150,210])
 a.set_ylabel('Temp (deg F)')
@@ -207,10 +186,11 @@ a.set_xlabel('R (Ohm)')
 
 
 ax,fig = plt.subplots()
-plt.plot(r,tref,rnew,tnew)
+plt.plot(rdata,tref,rModel,tModel)
 plt.title('Accurate Temp vs. R with Calib: Tferment')
 a = plt.gca()
 plt.grid()
+a.legend(['Actual T(R)', 'Computed T(R)'])
 a.set_xlim([5200,5700])
 a.set_ylim([105,115])
 a.set_ylabel('Temp (deg F)')
@@ -218,10 +198,11 @@ a.set_xlabel('R (Ohm)')
 
 
 ax,fig = plt.subplots()
-plt.plot(r,tref,rnew,tnew)
+plt.plot(rdata,tref,rModel,tModel)
 plt.title('Accurate Temp vs. R with Calib: T Fridge')
 a = plt.gca()
 plt.grid()
+a.legend(['Actual T(R)', 'Computed T(R)'])
 a.set_xlim([19000, 23000])
 a.set_ylim([45,55])
 a.set_ylabel('Temp (deg F)')
