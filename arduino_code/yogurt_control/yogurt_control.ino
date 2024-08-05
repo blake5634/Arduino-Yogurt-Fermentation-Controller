@@ -65,7 +65,7 @@ static long int min2sec=60;
 //     YOGURT MAKING PARAMETERS
 
 #define Tdenature 195.0
-#define Tferment  110.0
+#define Tferment  107.0
 
 //      HARDWARE PARAMETERS
 
@@ -95,8 +95,8 @@ static long int min2sec=60;
 #define SENSOR_OFFSET_WHITE   2.0  //  Empirical: add this to computed temp (minimize error at Tferment)
 #define SENSOR_CORRECTION_DENATURE_WHITE  -8.0  //calib adjust for high temps
 
-#define RELAY_Socket01 7
-#define RELAY_Socket02 8
+#define RELAY_Socket01 6   
+#define RELAY_Socket02 7
 #define HEAT_ON        0
 #define HEAT_OFF       1
 
